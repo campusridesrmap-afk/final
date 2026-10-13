@@ -42,6 +42,7 @@ export default function LiveLocationShare({
   partnerId = null,
   partnerName = "Co-rider",
   isAccepted = true,
+  rideStatus = "open",
 }) {
   const userId = currentUser?.id;
   const storageKey = getStorageKey(rideId, userId);
@@ -551,7 +552,26 @@ export default function LiveLocationShare({
     }
   };
 
-  if (!isAccepted) return null;
+  useEffect(() => {
+    if (!isAccepted || rideStatus !== "open") {
+      if (watcherKey) {
+        const entry = activeWatchers.get(watcherKey);
+        if (entry && entry.watchId != null) {
+          navigator.geolocation.clearWatch(entry.watchId);
+        }
+        activeWatchers.delete(watcherKey);
+      }
+      if (storageKey) {
+        try {
+          localStorage.removeItem(storageKey);
+        } catch (_) {}
+      }
+      setIsSharing(false);
+      setMyLocation(null);
+    }
+  }, [isAccepted, rideStatus, storageKey, watcherKey]);
+
+  if (!isAccepted || rideStatus !== "open") return null;
 
   // ---------------------------------------------------------------------------
   // 5. Partner Staleness & Status Calculation

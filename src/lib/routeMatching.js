@@ -20,6 +20,10 @@ export function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// In-memory LRU route cache to eliminate repeated network roundtrips for identical waypoints
+const routeCache = new Map();
+const MAX_ROUTE_CACHE_ENTRIES = 50;
+
 /**
  * Fetch a driving route from OSRM.
  * @param {Array<{lat:number, lng:number}>} waypoints – ordered stops
@@ -31,7 +35,13 @@ export async function fetchRoute(waypoints, signal) {
     throw new Error('At least two waypoints required');
   }
 
-  const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(';');
+  const coords = waypoints.map((w) => `${Number(w.lng).toFixed(5)},${Number(w.lat).toFixed(5)}`).join(';');
+
+  // Return instantly from in-memory cache if available
+  if (routeCache.has(coords)) {
+    return routeCache.get(coords);
+  }
+
   const url = `${OSRM_URL}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`;
 
   const res = await fetch(url, { signal });
@@ -43,11 +53,20 @@ export async function fetchRoute(waypoints, signal) {
   }
 
   const route = data.routes[0];
-  return {
+  const result = {
     geometry: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
     distance: route.distance, // metres
     duration: route.duration, // seconds
   };
+
+  // Cache result with LRU eviction
+  if (routeCache.size >= MAX_ROUTE_CACHE_ENTRIES) {
+    const firstKey = routeCache.keys().next().value;
+    routeCache.delete(firstKey);
+  }
+  routeCache.set(coords, result);
+
+  return result;
 }
 
 /**

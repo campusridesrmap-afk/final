@@ -1,8 +1,10 @@
+import { useState } from "react";
 import LocationAutocomplete from "./LocationAutocomplete";
 import { Plus, Trash2, ChevronUp, ChevronDown, Sparkles } from "lucide-react";
 import { COMMON_LOCATIONS } from "../data/srmLocations";
 
 export default function RouteStopsEditor({ stops, onChangeStops }) {
+  const [activeLocationField, setActiveLocationField] = useState(null);
   function handleUpdateStop(index, place) {
     const updated = [...stops];
     updated[index] = {
@@ -127,6 +129,9 @@ export default function RouteStopsEditor({ stops, onChangeStops }) {
 
               <div className="stop-content">
                 <LocationAutocomplete
+                  fieldId={`stop-${index}`}
+                  activeField={activeLocationField}
+                  onSetActiveField={setActiveLocationField}
                   label={roleLabel}
                   value={stop.name || ""}
                   placeholder={

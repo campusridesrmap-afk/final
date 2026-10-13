@@ -3,6 +3,7 @@ import LocationAutocomplete from "../components/LocationAutocomplete";
 import RideCard from "../components/RideCard";
 import { findMatchingStops } from "../lib/routeMatching";
 import {
+  Clock,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -11,9 +12,13 @@ export default function FindRide({
   rides,
   onBookRide,
   user,
+  authLoading = false,
   requestedRideIds,
+  userBookings = {},
   busy,
   dataLoading,
+  ridesError = "",
+  errorMessage = "",
   onRefresh,
   onOfferRideClick,
 }) {
@@ -21,6 +26,7 @@ export default function FindRide({
   const [dropoffText, setDropoffText] = useState("");
   const [pickupCoords, setPickupCoords] = useState(null);
   const [dropoffCoords, setDropoffCoords] = useState(null);
+  const [activeLocationField, setActiveLocationField] = useState(null);
 
   const [vehicleFilter, setVehicleFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("");
@@ -46,6 +52,7 @@ export default function FindRide({
     setDropoffCoords(null);
     setVehicleFilter("All");
     setDateFilter("");
+    setActiveLocationField(null);
   }
 
   // Filter & Route Match Rides
@@ -101,6 +108,37 @@ export default function FindRide({
       });
   }, [rides, pickupText, dropoffText, pickupCoords, dropoffCoords, vehicleFilter, dateFilter]);
 
+  // Segregate active upcoming rides from expired rides (departure time passed)
+  const { activeUpcomingRides, expiredRides } = useMemo(() => {
+    const now = Date.now();
+    const active = [];
+    const expired = [];
+    matchedRides.forEach((r) => {
+      const depTime = new Date(r.departure_at).getTime();
+      if (!isNaN(depTime) && depTime <= now) {
+        // Expired trip: departure time reached or passed (not cancelled or completed)
+        if (r.status !== "cancelled" && r.status !== "completed") {
+          expired.push(r);
+        }
+      } else {
+        // Active upcoming trip: departure time in future and status is open/active
+        if (r.status === "open" || !r.status || r.status === "active") {
+          active.push(r);
+        }
+      }
+    });
+
+    // Sort expired trips in descending departure-time order (newest / most recent departure first)
+    expired.sort((a, b) => {
+      const timeA = new Date(a.departure_at).getTime() || 0;
+      const timeB = new Date(b.departure_at).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
+
+    return { activeUpcomingRides: active, expiredRides: expired };
+  }, [matchedRides]);
+
   return (
     <div className="find-ride-page">
       {/* Hero Banner */}
@@ -117,7 +155,7 @@ export default function FindRide({
 
           <div className="hero-stats-row">
             <div className="stat-pill">
-              <strong>{rides.length}</strong> active rides
+              <strong>{activeUpcomingRides.length}</strong> active rides
             </div>
             <div className="stat-pill">
               <strong>100%</strong> campus community
@@ -166,6 +204,9 @@ export default function FindRide({
         <div className="search-filter-card">
           <div className="search-inputs-grid">
             <LocationAutocomplete
+              fieldId="pickup"
+              activeField={activeLocationField}
+              onSetActiveField={setActiveLocationField}
               label="From (Pickup)"
               value={pickupText}
               placeholder="e.g. SRM University - AP or Vijayawada"
@@ -178,6 +219,9 @@ export default function FindRide({
             />
 
             <LocationAutocomplete
+              fieldId="destination"
+              activeField={activeLocationField}
+              onSetActiveField={setActiveLocationField}
               label="To (Dropoff)"
               value={dropoffText}
               placeholder="e.g. Guntur or PNBS Bus Stand"
@@ -198,6 +242,7 @@ export default function FindRide({
               >
                 <option value="All">All vehicles</option>
                 <option value="Car">Cars only</option>
+                <option value="Auto">Autos only</option>
                 <option value="Bike">Bikes only</option>
               </select>
             </div>
@@ -230,7 +275,7 @@ export default function FindRide({
         {/* Results Stream */}
         <div className="results-header">
           <span className="results-count">
-            Showing <strong>{matchedRides.length}</strong> ride{matchedRides.length === 1 ? "" : "s"}
+            Showing <strong>{activeUpcomingRides.length}</strong> active ride{activeUpcomingRides.length === 1 ? "" : "s"}
           </span>
           {pickupCoords && dropoffCoords && (
             <span className="route-matching-active-badge">
@@ -239,42 +284,192 @@ export default function FindRide({
           )}
         </div>
 
-        {dataLoading ? (
+        {dataLoading && rides.length === 0 ? (
           <div className="empty-state">
             <div className="loading-spinner animate-spin" />
             <h3>Checking for rides...</h3>
             <p>Fetching scheduled trips from database.</p>
           </div>
-        ) : matchedRides.length === 0 ? (
+        ) : ridesError && rides.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">🚗</div>
-            <h3>No matching rides found</h3>
-            <p>
-              Nobody is offering a ride for this route or date yet. Be the first to share a trip!
-            </p>
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={onOfferRideClick}
-            >
-              + Offer a Ride Now
-            </button>
+            <div className="empty-icon">⚠️</div>
+            <h3>Unable to load rides</h3>
+            <p>{ridesError}</p>
+            {onRefresh && (
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={onRefresh}
+                style={{ marginTop: "12px" }}
+              >
+                <RefreshCw size={14} /> Try Again
+              </button>
+            )}
           </div>
         ) : (
-          <div className="ride-grid">
-            {matchedRides.map((ride) => (
-              <RideCard
-                key={ride.id}
-                ride={ride}
-                onBook={onBookRide}
-                isRequested={requestedRideIds.has(ride.id)}
-                isOwnRide={ride.provider_id === user?.id}
-                user={user}
-                busy={busy}
-                matchDetails={ride.matchDetails}
-              />
-            ))}
-          </div>
+          <>
+            {ridesError && rides.length > 0 && (
+              <div
+                className="subtle-error-banner"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: "#fffbeb",
+                  color: "#92400e",
+                  border: "1px solid #fde68a",
+                  borderRadius: "8px",
+                  padding: "10px 16px",
+                  marginBottom: "16px",
+                  fontSize: "0.875rem",
+                }}
+              >
+                <span>{ridesError}</span>
+                {onRefresh && (
+                  <button
+                    type="button"
+                    className="button button-outline"
+                    onClick={onRefresh}
+                    style={{ fontSize: "0.75rem", padding: "4px 8px", marginLeft: "12px" }}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+            {activeUpcomingRides.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">🚗</div>
+                <h3>No active rides found</h3>
+                <p>
+                  Nobody is offering an upcoming ride for this route or date yet. Be the first to share a trip!
+                </p>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={onOfferRideClick}
+                >
+                  + Offer a Ride Now
+                </button>
+              </div>
+            ) : (
+              <div className="ride-grid">
+                {activeUpcomingRides.map((ride) => (
+                  <RideCard
+                    key={ride.id}
+                    ride={ride}
+                    onBook={onBookRide}
+                    isRequested={requestedRideIds?.has(ride.id)}
+                    bookingStatus={userBookings?.[ride.id]?.status || null}
+                    isOwnRide={ride.provider_id === user?.id}
+                    user={user}
+                    authLoading={authLoading}
+                    busy={busy}
+                    matchDetails={ride.matchDetails}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Separate section for expired / departed rides */}
+            <div className="past-rides-section">
+              <div className="past-rides-header">
+                <Clock size={15} />
+                <span className="past-rides-title">Expired Trips ({expiredRides.length})</span>
+                <span className="past-rides-badge">Booking closed • Departure time passed</span>
+                {dataLoading && (
+                  <span
+                    className="revalidating-badge"
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "var(--muted)",
+                      marginLeft: "auto",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <RefreshCw size={11} className="animate-spin" /> Revalidating...
+                  </span>
+                )}
+              </div>
+
+              {ridesError && expiredRides.length > 0 && (
+                <div
+                  className="subtle-error-banner"
+                  style={{
+                    margin: "8px 0 14px",
+                    padding: "8px 12px",
+                    fontSize: "0.8rem",
+                    background: "#fffbeb",
+                    color: "#92400e",
+                    borderRadius: "6px",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>Showing cached expired trips. Couldn't refresh data.</span>
+                  {onRefresh && (
+                    <button
+                      type="button"
+                      onClick={onRefresh}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#92400e",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {dataLoading && rides.length === 0 ? (
+                <div className="empty-state" style={{ padding: "20px 16px", minHeight: "90px" }}>
+                  <div
+                    className="loading-spinner animate-spin"
+                    style={{ width: "18px", height: "18px", borderWidth: "2px" }}
+                  />
+                  <p style={{ margin: "8px 0 0", fontSize: "0.825rem", color: "var(--muted)" }}>
+                    Checking for past trips...
+                  </p>
+                </div>
+              ) : ridesError && expiredRides.length === 0 ? (
+                <div className="empty-state" style={{ padding: "18px 16px", minHeight: "80px" }}>
+                  <p style={{ color: "var(--red)", fontSize: "0.85rem", margin: 0 }}>
+                    Unable to load expired trips ({ridesError}).
+                  </p>
+                </div>
+              ) : expiredRides.length === 0 ? (
+                <div className="empty-state" style={{ padding: "20px 16px", minHeight: "80px", textAlign: "center" }}>
+                  <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--muted)" }}>No expired trips found.</p>
+                </div>
+              ) : (
+                <div className="ride-grid">
+                  {expiredRides.map((ride) => (
+                    <RideCard
+                      key={ride.id}
+                      ride={ride}
+                      onBook={onBookRide}
+                      isRequested={requestedRideIds?.has(ride.id)}
+                      bookingStatus={userBookings?.[ride.id]?.status || null}
+                      isOwnRide={ride.provider_id === user?.id}
+                      user={user}
+                      authLoading={authLoading}
+                      busy={busy}
+                      matchDetails={ride.matchDetails}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </section>
     </div>

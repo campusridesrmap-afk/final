@@ -1,15 +1,19 @@
 import { Search, PlusCircle, Car, User, LogOut, Shield, Bell } from "lucide-react";
+import { CAMPUS_RIDE_LOGO } from "../assets/logo";
 
 export default function Navbar({
   page,
   onNavigate,
   user,
+  authLoading = false,
   profile,
   onLogout,
   onOpenProfile,
   isProfileOpen = false,
   pendingRequestsCount = 0,
 }) {
+  const isFindOrDashboard = page === "find" || page === "dashboard";
+
   return (
     <>
       {/* Desktop & Tablet Topbar */}
@@ -19,7 +23,16 @@ export default function Navbar({
           onClick={() => onNavigate("find")}
           aria-label="CampusRide Home"
         >
-          <img src="/cr.jpeg" alt="CampusRide" className="brand-mark" />
+          <img
+            src={CAMPUS_RIDE_LOGO}
+            alt="CampusRide"
+            className="brand-mark"
+            width="40"
+            height="40"
+            loading="eager"
+            fetchPriority="high"
+            decoding="sync"
+          />
           <div className="brand-copy">
             <strong>CampusRide</strong>
             <small>SRM University-AP Carpooling</small>
@@ -28,7 +41,7 @@ export default function Navbar({
 
         <nav className="main-nav">
           <button
-            className={`nav-link ${page === "find" ? "active" : ""}`}
+            className={`nav-link ${isFindOrDashboard ? "active" : ""}`}
             onClick={() => onNavigate("find")}
           >
             <Search size={16} />
@@ -65,11 +78,28 @@ export default function Navbar({
                 title="Edit profile & contact"
               >
                 <div className="user-avatar">
-                  {(profile?.full_name || user.email || "U")[0].toUpperCase()}
+                  {profile?.full_name ? (
+                    profile.full_name.trim()[0].toUpperCase()
+                  ) : (
+                    <User size={16} />
+                  )}
                 </div>
                 <div className="user-identity-copy">
-                  <strong>{profile?.full_name || user.email.split("@")[0]}</strong>
-                  <small>{profile?.registration_number || "SRM Student"}</small>
+                  {profile?.full_name ? (
+                    <>
+                      <strong>{profile.full_name}</strong>
+                      {profile.registration_number ? (
+                        <small>{profile.registration_number}</small>
+                      ) : (
+                        <small className="user-identity-sub">SRM-AP Member</small>
+                      )}
+                    </>
+                  ) : (
+                    <div className="profile-placeholder-box" aria-hidden="true">
+                      <span className="profile-placeholder-line profile-placeholder-title"></span>
+                      <span className="profile-placeholder-line profile-placeholder-sub"></span>
+                    </div>
+                  )}
                 </div>
               </button>
 
@@ -81,6 +111,21 @@ export default function Navbar({
                 <LogOut size={14} />
                 <span className="hide-on-mobile">Log out</span>
               </button>
+            </div>
+          ) : authLoading ? (
+            <div
+              className="auth-loading-pill"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                fontSize: "12px",
+                color: "var(--muted)",
+                borderRadius: "var(--radius-full)",
+              }}
+            >
+              <span>Restoring session...</span>
             </div>
           ) : (
             <button
@@ -97,7 +142,7 @@ export default function Navbar({
       {/* Mobile Sticky Bottom Navigation Bar */}
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <button
-          className={`bottom-nav-item ${page === "find" ? "active" : ""}`}
+          className={`bottom-nav-item ${isFindOrDashboard ? "active" : ""}`}
           onClick={() => onNavigate("find")}
         >
           <Search size={20} />
@@ -126,17 +171,17 @@ export default function Navbar({
         </button>
 
         <button
-          className={`bottom-nav-item ${isProfileOpen || page === "profile" || (page === "auth" && !user) ? "active" : ""}`}
+          className={`bottom-nav-item ${isProfileOpen || page === "profile" || (page === "auth" && !user && !authLoading) ? "active" : ""}`}
           onClick={() => {
             if (user) {
               onOpenProfile();
-            } else {
+            } else if (!authLoading) {
               onNavigate("auth");
             }
           }}
         >
           <User size={20} />
-          <span>{user ? "Profile" : "Login"}</span>
+          <span>{user ? "Profile" : authLoading ? "Verifying..." : "Login"}</span>
         </button>
       </nav>
     </>

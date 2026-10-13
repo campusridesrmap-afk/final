@@ -1,7 +1,7 @@
 import { Phone, MessageCircle, User, ShieldCheck } from "lucide-react";
 
-export default function ContactShare({ profile, role = "Vehicle Sharer" }) {
-  if (!profile) return null;
+export default function ContactShare({ profile, role = "Vehicle Sharer", isSharingActive = true }) {
+  if (!profile || !isSharingActive) return null;
 
   const phone = profile.mobile_number || profile.phone;
   const regNo = profile.registration_number;

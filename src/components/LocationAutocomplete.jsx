@@ -2,7 +2,62 @@ import { useEffect, useState, useRef } from "react";
 import { MapPin, X, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { COMMON_LOCATIONS } from "../data/srmLocations";
 
+// Module-level query cache to prevent duplicate network requests across keystrokes and components
+const queryCache = new Map();
+const MAX_CACHE_ENTRIES = 100;
+
+function getCachedResults(normQuery) {
+  return queryCache.get(normQuery) || null;
+}
+
+function setCachedResults(normQuery, results) {
+  if (queryCache.size >= MAX_CACHE_ENTRIES) {
+    const firstKey = queryCache.keys().next().value;
+    queryCache.delete(firstKey);
+  }
+  queryCache.set(normQuery, results);
+}
+
+// Instant local matching for campus hubs & known AP travel points (0ms latency)
+function findLocalMatches(rawQuery) {
+  const q = rawQuery.trim().toLowerCase();
+  if (q.length < 2) return [];
+
+  return COMMON_LOCATIONS.filter((loc) => {
+    const nameMatch = loc.name.toLowerCase().includes(q);
+    const labelMatch = (loc.label || "").toLowerCase().includes(q);
+    return nameMatch || labelMatch;
+  }).map((loc) => ({
+    name: loc.name,
+    label: loc.label || loc.name,
+    lat: loc.lat,
+    lng: loc.lng,
+    isLocalHub: true,
+  }));
+}
+
+// Deduplicate and combine local matches with network results
+function mergeSuggestions(localList, networkList) {
+  const seen = new Set();
+  const merged = [];
+
+  for (const item of [...localList, ...networkList]) {
+    const latStr = Number(item.lat || 0).toFixed(3);
+    const lngStr = Number(item.lng || 0).toFixed(3);
+    const key = `${(item.name || "").toLowerCase().trim()}_${latStr}_${lngStr}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+
+  return merged.slice(0, 7);
+}
+
 export default function LocationAutocomplete({
+  fieldId,
+  activeField,
+  onSetActiveField,
   label,
   value,
   placeholder,
@@ -16,14 +71,30 @@ export default function LocationAutocomplete({
   const [open, setOpen] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+
   const wrapperRef = useRef(null);
   const inputRef = useRef(null);
+  const debounceTimerRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const requestIdRef = useRef(0);
+
+  // Flags to distinguish deliberate user typing from item selection
+  const isUserTypingRef = useRef(false);
+  const lastSelectedValueRef = useRef(null);
+
+  // Determine whether this field is the currently active location field
+  const isFieldActive = activeField !== undefined
+    ? activeField === fieldId
+    : true;
 
   // Close dropdown on click outside (mouse + touch)
   useEffect(() => {
     function handleClickOutside(event) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
         setOpen(false);
+        if (isFieldActive && onSetActiveField) {
+          onSetActiveField(null);
+        }
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -32,31 +103,100 @@ export default function LocationAutocomplete({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
+  }, [isFieldActive, onSetActiveField]);
+
+  // When this field becomes inactive (e.g. user moved to another field):
+  // Immediately close suggestions and cancel all pending network/debounce operations
+  useEffect(() => {
+    if (!isFieldActive) {
+      setOpen(false);
+      requestIdRef.current++;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setLoading(false);
+    }
+  }, [isFieldActive]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, []);
 
+  // Autocomplete search effect
   useEffect(() => {
-    const query = (value || "").trim();
-    let cancelled = false;
-    const controller = new AbortController();
+    const trimmed = (value || "").trim();
 
-    const timer = setTimeout(async () => {
-      if (query.length < 2) {
-        setSuggestions([]);
-        setOpen(false);
-        setLoading(false);
-        setSearchError("");
-        setHighlightedIndex(-1);
-        return;
-      }
+    // If the value change was caused by selecting a suggestion, or user is not actively typing,
+    // or this field is not currently active:
+    // Strictly do not trigger autocomplete search and do not reopen the dropdown!
+    if (!isFieldActive || !isUserTypingRef.current || trimmed === lastSelectedValueRef.current) {
+      return;
+    }
 
-      setLoading(true);
+    if (trimmed.length < 2) {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      requestIdRef.current++;
+
+      setSuggestions([]);
+      setOpen(false);
+      setLoading(false);
       setSearchError("");
+      setHighlightedIndex(-1);
+      return;
+    }
 
+    const normQuery = trimmed.toLowerCase();
+    const currentRequestId = ++requestIdRef.current;
+
+    // 1. Instant local matches (0ms response)
+    const localMatches = findLocalMatches(normQuery);
+
+    // 2. Check query cache (0ms response)
+    const cached = getCachedResults(normQuery);
+    if (cached) {
+      const combined = mergeSuggestions(localMatches, cached);
+      setSuggestions(combined);
+      setHighlightedIndex(-1);
+      setSearchError("");
+      setLoading(false);
+      if (isFieldActive) {
+        setOpen(true);
+      }
+      return;
+    }
+
+    // 3. Immediately display local campus matches while network fetch is debounced/pending
+    if (localMatches.length > 0 && isFieldActive) {
+      setSuggestions(localMatches);
+      setHighlightedIndex(-1);
+      setOpen(true);
+    }
+
+    // 4. Debounced network request (220ms debounce)
+    setLoading(true);
+    setSearchError("");
+
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    debounceTimerRef.current = setTimeout(async () => {
       try {
-        // Free Komoot Photon API (OSM based, biased to AP coordinates)
         const url = new URL("https://photon.komoot.io/api/");
-        url.searchParams.set("q", query);
-        url.searchParams.set("limit", "6");
+        url.searchParams.set("q", trimmed);
+        url.searchParams.set("limit", "7");
         url.searchParams.set("lang", "en");
         url.searchParams.set("lat", "16.4638");
         url.searchParams.set("lon", "80.5078");
@@ -65,9 +205,18 @@ export default function LocationAutocomplete({
         if (!response.ok) throw new Error("Search service unavailable");
 
         const data = await response.json();
-        if (cancelled) return;
 
-        const places = (data.features || [])
+        // Stale response guard: discard if field is no longer active, user continued typing, or selected item
+        if (
+          !isFieldActive ||
+          currentRequestId !== requestIdRef.current ||
+          !isUserTypingRef.current ||
+          trimmed === lastSelectedValueRef.current
+        ) {
+          return;
+        }
+
+        const networkPlaces = (data.features || [])
           .filter((feature) => {
             const coordinates = feature.geometry?.coordinates;
             return (
@@ -100,33 +249,72 @@ export default function LocationAutocomplete({
             };
           });
 
-        setSuggestions(places);
-        setHighlightedIndex(-1);
-        setOpen(true);
-      } catch (error) {
-        if (error.name !== "AbortError" && !cancelled) {
-          setSuggestions([]);
-          setSearchError("Location search currently unavailable. You can still type your stop name.");
+        // Store into query cache
+        setCachedResults(normQuery, networkPlaces);
+
+        const merged = mergeSuggestions(localMatches, networkPlaces);
+
+        if (
+          isFieldActive &&
+          currentRequestId === requestIdRef.current &&
+          isUserTypingRef.current &&
+          trimmed !== lastSelectedValueRef.current
+        ) {
+          setSuggestions(merged);
+          setHighlightedIndex(-1);
           setOpen(true);
         }
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          // If local matches already exist, keep showing local matches instead of an error banner
+          if (localMatches.length === 0 && isFieldActive) {
+            setSearchError("Location search currently unavailable. You can still type your stop name.");
+            setOpen(true);
+          }
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (currentRequestId === requestIdRef.current && isUserTypingRef.current) {
+          setLoading(false);
+        }
       }
-    }, 300);
+    }, 220);
 
     return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      controller.abort();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [value]);
+  }, [value, isFieldActive]);
 
   function choosePlace(place) {
-    onSelect(place);
-    setSuggestions([]);
+    if (!place) return;
+
+    // Immediately flag that selection finished to prevent reopening
+    isUserTypingRef.current = false;
+    lastSelectedValueRef.current = (place.name || place.label || "").trim();
+    requestIdRef.current++;
+
+    // Cancel pending debounce timers and abort in-flight requests
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Immediately close dropdown and clear suggestions
     setOpen(false);
+    setSuggestions([]);
+    setLoading(false);
     setSearchError("");
     setHighlightedIndex(-1);
+
+    if (onSetActiveField) {
+      onSetActiveField(null);
+    }
+
+    // Update parent state with structured location data
+    onSelect(place);
   }
 
   function handleQuickPick(loc) {
@@ -138,8 +326,87 @@ export default function LocationAutocomplete({
     });
   }
 
+  function handleClear() {
+    isUserTypingRef.current = false;
+    lastSelectedValueRef.current = null;
+    requestIdRef.current++;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    setSuggestions([]);
+    setOpen(false);
+    setLoading(false);
+    setSearchError("");
+    setHighlightedIndex(-1);
+
+    onChange("");
+    inputRef.current?.focus();
+  }
+
+  function handleInputChange(event) {
+    const newVal = event.target.value;
+    isUserTypingRef.current = true;
+    lastSelectedValueRef.current = null;
+
+    if (onSetActiveField && fieldId) {
+      onSetActiveField(fieldId);
+    }
+
+    onChange(newVal);
+  }
+
+  function handleFocus() {
+    if (onSetActiveField && fieldId) {
+      onSetActiveField(fieldId);
+    }
+
+    const trimmed = (value || "").trim();
+    // Resume suggestions when returning to an unfinished query that wasn't already selected
+    if (
+      trimmed.length >= 2 &&
+      trimmed !== lastSelectedValueRef.current
+    ) {
+      isUserTypingRef.current = true;
+      const normQuery = trimmed.toLowerCase();
+      const cached = getCachedResults(normQuery);
+      const local = findLocalMatches(normQuery);
+      const merged = mergeSuggestions(local, cached || suggestions);
+
+      if (merged.length > 0) {
+        setSuggestions(merged);
+        setHighlightedIndex(-1);
+        setOpen(true);
+      }
+    }
+  }
+
+  function handleBlur(event) {
+    // If focus moved within wrapper (e.g. clicking clear button or dropdown item), keep open
+    if (wrapperRef.current && wrapperRef.current.contains(event.relatedTarget)) {
+      return;
+    }
+    setOpen(false);
+  }
+
   function handleKeyDown(e) {
-    if (!open) return;
+    if (!open) {
+      if (e.key === "ArrowDown" && suggestions.length > 0) {
+        if (onSetActiveField && fieldId) {
+          onSetActiveField(fieldId);
+        }
+        setOpen(true);
+        setHighlightedIndex(0);
+        e.preventDefault();
+      }
+      return;
+    }
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -158,13 +425,28 @@ export default function LocationAutocomplete({
       }
     } else if (e.key === "Escape") {
       setOpen(false);
+      if (onSetActiveField) {
+        onSetActiveField(null);
+      }
     }
   }
 
   const queryLen = (value || "").trim().length;
+  const trimmedQuery = (value || "").trim();
+
+  // Derived dropdown visibility:
+  // Must be open, this field MUST be active, query must be >= 2 characters,
+  // user must NOT have already selected this exact location,
+  // and there must be suggestions, loading status, or error status to show.
+  const isDropdownVisible =
+    open &&
+    isFieldActive &&
+    trimmedQuery.length >= 2 &&
+    trimmedQuery !== lastSelectedValueRef.current &&
+    (suggestions.length > 0 || loading || (searchError && suggestions.length === 0));
 
   return (
-    <div className={`location-autocomplete ${open ? "is-open" : ""}`} ref={wrapperRef}>
+    <div className={`location-autocomplete ${isDropdownVisible ? "is-open" : ""}`} ref={wrapperRef}>
       <label className="field-label">
         <span>{label}</span>
         {required && <span className="req-dot">*</span>}
@@ -180,28 +462,19 @@ export default function LocationAutocomplete({
           maxLength={120}
           autoComplete="off"
           placeholder={placeholder}
-          onFocus={() => {
-            if (suggestions.length > 0) setOpen(true);
-          }}
-          onChange={(event) => {
-            onChange(event.target.value);
-            setOpen(true);
-          }}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
         />
 
-        {loading && <Loader2 className="input-spinner animate-spin" size={16} />}
+        {loading && isFieldActive && <Loader2 className="input-spinner animate-spin" size={16} />}
 
         {value && !loading && (
           <button
             type="button"
             className="input-clear-btn"
-            onClick={() => {
-              onChange("");
-              setSuggestions([]);
-              setOpen(false);
-              inputRef.current?.focus();
-            }}
+            onClick={handleClear}
             title="Clear location"
             aria-label="Clear location input"
           >
@@ -209,8 +482,8 @@ export default function LocationAutocomplete({
           </button>
         )}
 
-        {/* Suggestion Dropdown anchored directly to input field */}
-        {open && (
+        {/* Suggestion Dropdown: Strictly visible only when this field is active */}
+        {isDropdownVisible && (
           <div className="location-suggestions" role="listbox">
             {loading && suggestions.length === 0 && (
               <div className="autocomplete-status-item loading">
@@ -219,7 +492,7 @@ export default function LocationAutocomplete({
               </div>
             )}
 
-            {!loading && searchError && (
+            {!loading && searchError && suggestions.length === 0 && (
               <div className="autocomplete-status-item error">
                 <AlertCircle size={14} />
                 <span>{searchError}</span>

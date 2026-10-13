@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Mail, Lock, ShieldCheck, Sparkles } from "lucide-react";
+import { CAMPUS_RIDE_LOGO } from "../assets/logo";
 
 const PRE_REGISTRATION_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSd0IvGCblZ9FMrjkJMMLkRqsUMXONiCJIqXE2ss4SSlP35oeg/viewform?usp=header";
@@ -25,9 +26,14 @@ export default function AuthPage({
       <div className="auth-aside">
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
           <img
-            src="/cr.jpeg"
+            src={CAMPUS_RIDE_LOGO}
             alt="CampusRide Logo"
             className="brand-mark"
+            width="48"
+            height="48"
+            loading="eager"
+            fetchPriority="high"
+            decoding="sync"
             style={{ width: "48px", height: "48px" }}
           />
           <div>

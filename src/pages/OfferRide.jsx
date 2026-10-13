@@ -3,6 +3,7 @@ import RouteStopsEditor from "../components/RouteStopsEditor";
 import { fetchRoute, formatDistance, formatDuration } from "../lib/routeMatching";
 import {
   Calendar,
+  Clock,
   ShieldCheck,
 } from "lucide-react";
 
@@ -31,9 +32,9 @@ export default function OfferRide({
   ]);
 
   const [departureAt, setDepartureAt] = useState("");
-  const [vehicleType, setVehicleType] = useState("Car");
-  const [availableSeats, setAvailableSeats] = useState("3");
-  const [costPerSeat, setCostPerSeat] = useState("50");
+  const [vehicleType, setVehicleType] = useState("");
+  const [availableSeats, setAvailableSeats] = useState("");
+  const [costPerSeat, setCostPerSeat] = useState("");
 
   const [routeData, setRouteData] = useState(null);
   const [formError, setFormError] = useState("");
@@ -96,15 +97,36 @@ export default function OfferRide({
       return;
     }
 
-    const seatsNum = Number(availableSeats);
-    if (!seatsNum || seatsNum < 1 || seatsNum > 7) {
-      setFormError("Seats must be between 1 and 7.");
+    if (!vehicleType) {
+      setFormError("Please select a vehicle type.");
+      return;
+    }
+
+    if (vehicleType === "Bike") {
+      // Bike is fixed to 1 seat
+    } else {
+      if (!availableSeats) {
+        setFormError("Please select number of seats.");
+        return;
+      }
+    }
+
+    const seatsNum = vehicleType === "Bike" ? 1 : Number(availableSeats);
+    if (isNaN(seatsNum) || seatsNum < 1 || seatsNum > 7) {
+      setFormError(
+        `For ${vehicleType}, available seats must be between 1 and 7.`
+      );
+      return;
+    }
+
+    if (costPerSeat.trim() === "") {
+      setFormError("Please enter the price per seat (enter 0 for a free ride).");
       return;
     }
 
     const costNum = Number(costPerSeat);
     if (isNaN(costNum) || costNum < 0) {
-      setFormError("Enter a valid cost share amount.");
+      setFormError("Please enter a valid price per seat (0 or greater).");
       return;
     }
 
@@ -184,38 +206,74 @@ export default function OfferRide({
               value={departureAt}
               onChange={(e) => setDepartureAt(e.target.value)}
             />
+
+            {/* Booking Deadline Notice */}
+            <div className="booking-deadline-notice">
+              <div className="deadline-notice-header">
+                <Clock size={14} className="deadline-notice-icon" />
+                <strong>Booking Deadline</strong>
+              </div>
+              <p>
+                Seat requests close automatically at your selected departure time. After this time, no new passengers can request or book seats for this ride.
+              </p>
+              <p className="deadline-notice-sub">
+                Please choose your departure time carefully.
+              </p>
+            </div>
           </div>
 
           {/* Vehicle & Seats Row */}
           <div className="field-row">
             <div className="field">
-              <label className="field-label">Vehicle Type</label>
+              <label className="field-label" htmlFor="vehicle-type-select">Vehicle Type</label>
               <select
+                id="vehicle-type-select"
+                required
                 value={vehicleType}
                 onChange={(e) => {
-                  const type = e.target.value;
-                  setVehicleType(type);
-                  if (type === "Bike") setAvailableSeats("1");
+                  const newType = e.target.value;
+                  setVehicleType(newType);
+                  if (newType === "Bike") {
+                    setAvailableSeats("1");
+                  } else {
+                    // For Car, Auto, or unselected: clear seats so old selection is never carried over
+                    setAvailableSeats("");
+                  }
                 }}
               >
+                <option value="">Select vehicle type</option>
                 <option value="Car">Car 🚗</option>
+                <option value="Auto">Auto 🛺</option>
                 <option value="Bike">Motorcycle / Scooter 🏍️</option>
               </select>
             </div>
 
             <div className="field">
-              <label className="field-label">Available Seats</label>
+              <label className="field-label" htmlFor="available-seats-select">
+                {vehicleType === "Car" || vehicleType === "Auto"
+                  ? "Select number of seats"
+                  : "Available Seats"}
+              </label>
               <select
+                id="available-seats-select"
+                required
                 value={availableSeats}
                 onChange={(e) => setAvailableSeats(e.target.value)}
-                disabled={vehicleType === "Bike"}
+                disabled={!vehicleType || vehicleType === "Bike"}
               >
-                {(vehicleType === "Bike" ? [1] : [1, 2, 3, 4, 5, 6, 7]).map(
-                  (seat) => (
-                    <option key={seat} value={seat}>
-                      {seat} {seat === 1 ? "seat" : "seats"}
-                    </option>
-                  )
+                {!vehicleType ? (
+                  <option value="">Select vehicle type first</option>
+                ) : vehicleType === "Bike" ? (
+                  <option value="1">1 seat</option>
+                ) : (
+                  <>
+                    <option value="">Select number of seats</option>
+                    {[1, 2, 3, 4, 5, 6, 7].map((seat) => (
+                      <option key={seat} value={seat}>
+                        {seat} {seat === 1 ? "seat" : "seats"}
+                      </option>
+                    ))}
+                  </>
                 )}
               </select>
             </div>
@@ -223,8 +281,9 @@ export default function OfferRide({
 
           {/* Cost per seat */}
           <div className="field">
-            <label className="field-label">Cost Share Per Seat (₹)</label>
+            <label className="field-label" htmlFor="cost-per-seat-input">Cost Share Per Seat (₹)</label>
             <input
+              id="cost-per-seat-input"
               type="number"
               min="0"
               max="5000"
@@ -232,7 +291,7 @@ export default function OfferRide({
               required
               value={costPerSeat}
               onChange={(e) => setCostPerSeat(e.target.value)}
-              placeholder="e.g. 50 (enter 0 for free ride)"
+              placeholder="Enter price per seat"
             />
             <small className="field-help-text">
               Fair travel cost contribution per ride seeker. Free rides encourage quick pickups!
