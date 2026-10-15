@@ -1,6 +1,5 @@
 import { Check, X, Clock, Users, Calendar, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
 import ContactShare from "./ContactShare";
-import LiveLocationShare from "./LiveLocationShare";
 import { formatDate, formatCost } from "./RideCard";
 
 export default function BookingRow({
@@ -9,14 +8,17 @@ export default function BookingRow({
   onRespond, // (bookingId, 'accept' | 'reject')
   onWithdraw, // (bookingId) - for pending passenger requests
   onCancelBooking, // (bookingId) - for accepted passenger bookings
-  onComplete, // (rideId) - available to both driver and accepted passenger
+  onCompleteTrip, // (bookingId) - for completing an individual passenger trip
+  onComplete, // fallback: (bookingId)
   currentUser,
   busy,
 }) {
+  const completeAction = onCompleteTrip || onComplete;
   const isIncoming = type === "incoming";
   const ride = booking.ride || booking.rides || {};
 
-  const isRideCompleted = ride.status === "completed" || booking.status === "completed";
+  const isTripCompleted = booking.status === "completed";
+  const isRideCompleted = ride.status === "completed" || isTripCompleted;
   const isRideCancelled = ride.status === "cancelled" || booking.status === "cancelled";
   const depTime = new Date(ride.departure_at).getTime();
   const isDeparturePassed = !isNaN(depTime) && depTime <= Date.now();
@@ -28,7 +30,7 @@ export default function BookingRow({
   const pickup = booking.pickup_location || ride.from_location;
   const dropoff = booking.dropoff_location || ride.to_location;
 
-  // Active contact & location sharing is only permitted for active accepted bookings on open rides
+  // Direct contact sharing is only permitted for active accepted bookings on open rides
   const isSharingActive = isAccepted && (ride.status === "open" || !ride.status);
 
   const pricePerSeat = Number(ride.cost_per_seat) || 0;
@@ -50,7 +52,15 @@ export default function BookingRow({
           <span className={`status-pill status-${isRideCompleted ? "completed" : isRideCancelled ? "cancelled" : isExpired ? "expired" : booking.status}`}>
             {isPending && <Clock size={12} />}
             {isAccepted && <Check size={12} />}
-            {isRideCompleted ? "Ride Ended" : isRideCancelled ? "Cancelled" : isExpired ? "Expired" : booking.status}
+            {isTripCompleted
+              ? "Trip Completed"
+              : ride.status === "completed"
+              ? "Ride Ended"
+              : isRideCancelled
+              ? "Cancelled"
+              : isExpired
+              ? "Expired"
+              : booking.status}
           </span>
         </div>
 
@@ -88,7 +98,7 @@ export default function BookingRow({
           </div>
         )}
 
-        {/* Contact details and Live Location - ONLY active when accepted and ride is open */}
+        {/* Contact details - ONLY active when accepted and ride is open */}
         {isSharingActive ? (
           <div className="booking-contact-section">
             {isIncoming ? (
@@ -96,38 +106,26 @@ export default function BookingRow({
             ) : (
               <ContactShare profile={booking.driver_profile} role="Vehicle Sharer" isSharingActive={true} />
             )}
-
-            {/* Student Live Location (Place Name - No Map) */}
-            <LiveLocationShare
-              rideId={booking.ride_id || ride.id}
-              currentUser={currentUser}
-              currentUserName={isIncoming ? "You (Vehicle Sharer)" : "You (Ride Seeker)"}
-              role={isIncoming ? "driver" : "passenger"}
-              partnerRole={isIncoming ? "Ride Seeker" : "Vehicle Sharer"}
-              partnerId={
-                isIncoming
-                  ? booking.passenger_id
-                  : (ride.provider_id || booking.rides?.provider_id || booking.ride?.provider_id)
-              }
-              partnerName={isIncoming ? (booking.passenger_name || "Ride Seeker") : (booking.driver_name || ride.provider_name || "Vehicle Sharer")}
-              isAccepted={true}
-              rideStatus="open"
-            />
           </div>
         ) : isExpired ? (
           <div className="sharing-ended-banner expired">
             <AlertCircle size={14} />
             <span>Request expired: Ride departure deadline passed before confirmation.</span>
           </div>
+        ) : isTripCompleted ? (
+          <div className="sharing-ended-banner completed">
+            <ShieldCheck size={14} />
+            <span>Trip completed. Contact details have been securely closed.</span>
+          </div>
         ) : isRideCompleted ? (
           <div className="sharing-ended-banner completed">
             <ShieldCheck size={14} />
-            <span>Ride completed. Contact details and live location sharing have been securely closed.</span>
+            <span>Ride completed. Contact details have been securely closed.</span>
           </div>
         ) : isRideCancelled ? (
           <div className="sharing-ended-banner cancelled">
             <AlertCircle size={14} />
-            <span>Ride cancelled. Contact details and live location sharing are closed.</span>
+            <span>Ride cancelled. Contact details are closed.</span>
           </div>
         ) : null}
       </div>
@@ -156,14 +154,15 @@ export default function BookingRow({
           </div>
         )}
 
-        {isIncoming && isAccepted && onComplete && (
+        {isIncoming && isAccepted && completeAction && (
           <button
             type="button"
             className="button button-primary button-small"
-            onClick={() => onComplete(booking.ride_id || ride.id)}
+            onClick={() => completeAction(booking.id)}
             disabled={busy}
+            aria-label="Complete passenger trip"
           >
-            Complete Ride
+            Complete Trip
           </button>
         )}
 
@@ -181,12 +180,13 @@ export default function BookingRow({
 
         {!isIncoming && isAccepted && (
           <div className="response-btn-group">
-            {onComplete && (
+            {completeAction && (
               <button
                 type="button"
                 className="button button-primary button-small"
-                onClick={() => onComplete(booking.ride_id || ride.id)}
+                onClick={() => completeAction(booking.id)}
                 disabled={busy}
+                aria-label="Complete trip"
               >
                 Complete Ride
               </button>

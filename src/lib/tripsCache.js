@@ -49,7 +49,9 @@ export function sanitizeCachedRide(r) {
 
 /**
  * Sanitizes a booking record (incoming or outgoing) for caching.
- * Excludes sensitive contact information.
+ * Safely preserves verified contact profiles and live location ONLY for
+ * authorized active co-riders on open rides, strictly omitting them for
+ * pending, cancelled, or completed bookings.
  * @param {object} b
  * @returns {object|null}
  */
@@ -58,6 +60,32 @@ export function sanitizeCachedBooking(b) {
 
   const associatedRide = b.rides || b.ride;
   const sanitizedRide = associatedRide ? sanitizeCachedRide(associatedRide) : null;
+
+  // Contact & location sharing is strictly authorized ONLY for active accepted bookings on open rides
+  const isAccepted = b.status === "accepted";
+  const isOpen = !sanitizedRide || sanitizedRide.status === "open";
+  const isSharingAuthorized = isAccepted && isOpen;
+
+  // Only retain verified contact details for authorized accepted bookings
+  const sanitizedDriverProfile =
+    isSharingAuthorized && b.driver_profile && typeof b.driver_profile === "object"
+      ? {
+          id: String(b.driver_profile.id || ""),
+          full_name: b.driver_profile.full_name || b.driver_name || "Vehicle Sharer",
+          mobile_number: b.driver_profile.mobile_number || "",
+          registration_number: b.driver_profile.registration_number || "",
+        }
+      : null;
+
+  const sanitizedPassengerProfile =
+    isSharingAuthorized && b.passenger_profile && typeof b.passenger_profile === "object"
+      ? {
+          id: String(b.passenger_profile.id || ""),
+          full_name: b.passenger_profile.full_name || b.passenger_name || "SRM Student",
+          mobile_number: b.passenger_profile.mobile_number || "",
+          registration_number: b.passenger_profile.registration_number || "",
+        }
+      : null;
 
   return {
     id: String(b.id),
@@ -70,15 +98,15 @@ export function sanitizeCachedBooking(b) {
     pickup_stop_index: Number(b.pickup_stop_index) || 0,
     dropoff_stop_index: Number(b.dropoff_stop_index) || 0,
     created_at: b.created_at || null,
-    // Display names only (no mobile numbers or reg numbers persisted)
+    // Display names
     driver_name: typeof b.driver_name === "string" ? b.driver_name : "Vehicle Sharer",
     passenger_name: typeof b.passenger_name === "string" ? b.passenger_name : "SRM Student",
     // Embed associated ride safely
     ride: sanitizedRide,
     rides: sanitizedRide,
-    // Sensitive profiles deliberately omitted from persistent storage
-    driver_profile: null,
-    passenger_profile: null,
+    // Contact profiles safely isolated and preserved only when authorized
+    driver_profile: sanitizedDriverProfile,
+    passenger_profile: sanitizedPassengerProfile,
   };
 }
 

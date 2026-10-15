@@ -123,8 +123,10 @@ export default function App() {
   // Lifecycle confirmation modal state
   const [lifecycleModal, setLifecycleModal] = useState({
     isOpen: false,
-    type: "complete", // "complete" | "cancel_sharing" | "withdraw_request" | "cancel_booking"
+    type: "complete", // "complete" | "complete_trip" | "cancel_sharing" | "withdraw_request" | "cancel_booking"
     targetId: null,
+    activePassengersCount: 0,
+    activePassengerNames: [],
     error: "",
   });
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
@@ -328,8 +330,8 @@ export default function App() {
   }, [user?.id, loadProfile]);
 
   // Load active rides and expired trips using reliable pagination and stale-while-revalidate
-  const loadRides = useCallback(async () => {
-    if (loadRidesInFlightRef.current) {
+  const loadRides = useCallback(async (force = false) => {
+    if (!force && loadRidesInFlightRef.current) {
       return loadRidesInFlightRef.current;
     }
 
@@ -504,13 +506,13 @@ export default function App() {
   }, []);
 
   // Load user trips & bookings with race-condition prevention, caching, and RPC deduplication
-  const loadMyTrips = useCallback(async () => {
+  const loadMyTrips = useCallback(async (force = false, skipRpc = false) => {
     const targetUserId = activeUserIdRef.current;
     if (!targetUserId) {
       return;
     }
 
-    if (loadMyTripsInFlightRef.current) {
+    if (!force && loadMyTripsInFlightRef.current) {
       return loadMyTripsInFlightRef.current;
     }
 
@@ -518,7 +520,9 @@ export default function App() {
       const requestId = ++tripsRequestIdRef.current;
       try {
         // Trigger server-side pending booking expiration with deduplication and throttling
-        await triggerCloseExpiredRpc();
+        if (!skipRpc) {
+          await triggerCloseExpiredRpc();
+        }
 
       // 1. My offered rides - paginate to retrieve all records
       let myRidesList = [];
@@ -611,8 +615,14 @@ export default function App() {
       const activeAcceptedDriverIds = [
         ...new Set(
           myBookingsList
-            .filter((b) => b.status === "accepted" && b.rides?.status === "open")
-            .map((b) => b.rides?.provider_id)
+            .filter((b) => {
+              const ride = b.rides || b.ride;
+              return b.status === "accepted" && (!ride?.status || ride?.status === "open" || ride?.status === "active");
+            })
+            .map((b) => {
+              const ride = b.rides || b.ride;
+              return ride?.provider_id || b.provider_id;
+            })
             .filter(Boolean)
         ),
       ];
@@ -620,8 +630,10 @@ export default function App() {
       const otherDriverIds = [
         ...new Set(
           myBookingsList
-            .filter((b) => !(b.status === "accepted" && b.rides?.status === "open"))
-            .map((b) => b.rides?.provider_id)
+            .map((b) => {
+              const ride = b.rides || b.ride;
+              return ride?.provider_id || b.provider_id;
+            })
             .filter(Boolean)
         ),
       ].filter((id) => !activeAcceptedDriverIds.includes(id));
@@ -655,11 +667,15 @@ export default function App() {
         }
       }
 
-      const processedMyBookings = myBookingsList.map((b) => ({
-        ...b,
-        driver_name: driverProfilesMap[b.rides?.provider_id]?.full_name || "Vehicle Sharer",
-        driver_profile: driverProfilesMap[b.rides?.provider_id] || null,
-      }));
+      const processedMyBookings = myBookingsList.map((b) => {
+        const ride = b.rides || b.ride;
+        const providerId = ride?.provider_id || b.provider_id;
+        return {
+          ...b,
+          driver_name: driverProfilesMap[providerId]?.full_name || b.driver_name || "Vehicle Sharer",
+          driver_profile: driverProfilesMap[providerId] || b.driver_profile || null,
+        };
+      });
 
       // Update userBookings map
       const bookingsMap = {};
@@ -815,7 +831,7 @@ export default function App() {
     setTripsError("");
     try {
       const rpcTask = triggerCloseExpiredRpc(true);
-      const refreshTasks = [loadRides(), loadMyTrips(), rpcTask];
+      const refreshTasks = [loadRides(true), loadMyTrips(true), rpcTask];
       if (activeUserIdRef.current) {
         refreshTasks.push(loadProfile(activeUserIdRef.current));
       }
@@ -848,34 +864,133 @@ export default function App() {
     }
   }, [authLoading, user?.id, loadMyTrips]);
 
-  // Supabase Realtime synchronization for active rides and bookings
-  useEffect(() => {
-    if (!user?.id) return;
+  // Debounced background sync for Realtime events to prevent rapid overlapping network requests
+  const syncTimerRef = useRef(null);
 
+  const scheduleRealtimeSync = useCallback(() => {
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+    }
+    syncTimerRef.current = setTimeout(async () => {
+      syncTimerRef.current = null;
+      try {
+        await loadRides(true);
+      } catch (_) {}
+      if (activeUserIdRef.current) {
+        try {
+          await loadMyTrips(true, true);
+        } catch (_) {}
+      }
+    }, 150);
+  }, [loadRides, loadMyTrips]);
+
+  // 1. Public Rides Realtime synchronization (active for all users, including visitors & guests)
+  useEffect(() => {
     const channel = supabase
-      .channel(`campusride_lifecycle_${user.id}`)
+      .channel("campusride_public_rides")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "rides" },
-        () => {
-          loadRides();
-          loadMyTrips();
+        (payload) => {
+          const { eventType, new: newRide, old: oldRide } = payload;
+          if (eventType === "INSERT" && newRide) {
+            setRides((prev) => {
+              if (prev.some((r) => r.id === newRide.id)) return prev;
+              return [
+                ...prev,
+                { ...newRide, provider_name: newRide.provider_name || "SRM Student" },
+              ];
+            });
+          } else if (eventType === "UPDATE" && newRide) {
+            setRides((prev) =>
+              prev.map((r) => (r.id === newRide.id ? { ...r, ...newRide } : r))
+            );
+            setMyRides((prev) =>
+              prev.map((r) => (r.id === newRide.id ? { ...r, ...newRide } : r))
+            );
+          } else if (eventType === "DELETE" && oldRide) {
+            setRides((prev) => prev.filter((r) => r.id !== oldRide.id));
+            setMyRides((prev) => prev.filter((r) => r.id !== oldRide.id));
+          }
+          scheduleRealtimeSync();
         }
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "bookings" },
-        () => {
-          loadMyTrips();
-          loadRides();
+      .subscribe((status, err) => {
+        if (err) console.warn("Public rides Realtime warning:", err);
+        if (status === "SUBSCRIBED") {
+          scheduleRealtimeSync();
         }
-      )
-      .subscribe();
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, loadRides, loadMyTrips]);
+  }, [scheduleRealtimeSync]);
+
+  // 2. Authenticated User Bookings Realtime synchronization
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`campusride_user_bookings_${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        (payload) => {
+          const { eventType, new: newBooking } = payload;
+          if (newBooking) {
+            // If the passenger is the current user, update userBookings map immediately
+            if (newBooking.passenger_id === user.id) {
+              setUserBookings((prev) => ({
+                ...prev,
+                [newBooking.ride_id]: {
+                  id: String(newBooking.id),
+                  rideId: String(newBooking.ride_id),
+                  status: newBooking.status,
+                  seats_requested: Number(newBooking.seats_requested) || 1,
+                  created_at: newBooking.created_at || null,
+                },
+              }));
+              setMyBookings((prev) =>
+                prev.map((b) => (b.id === newBooking.id ? { ...b, ...newBooking } : b))
+              );
+            }
+
+            // If incoming bookings contain this booking, update it immediately
+            setIncomingBookings((prev) =>
+              prev.map((b) => (b.id === newBooking.id ? { ...b, ...newBooking } : b))
+            );
+          }
+          scheduleRealtimeSync();
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) console.warn("User bookings Realtime warning:", err);
+        if (status === "SUBSCRIBED") {
+          scheduleRealtimeSync();
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, scheduleRealtimeSync]);
+
+  // 3. Tab visibility / focus resync for catching missed events on mobile unlock or tab return
+  useEffect(() => {
+    function handleVisibilityOrFocus() {
+      if (document.visibilityState === "visible") {
+        scheduleRealtimeSync();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+    };
+  }, [scheduleRealtimeSync]);
 
   // Ensure user profile in database without overwriting existing valid student identity
   const ensureProfile = useCallback(async (currentUser, name = "") => {
@@ -1091,8 +1206,8 @@ export default function App() {
       setNotice("Ride published successfully! Students along your path can now request seats.");
       setPage("find");
 
-      await loadRides();
-      await loadMyTrips();
+      await loadRides(true);
+      await loadMyTrips(true);
     } catch (error) {
       console.error("Failed to offer ride:", error);
       setErrorMessage(getErrorMessage(error));
@@ -1296,7 +1411,7 @@ export default function App() {
         });
 
         setNotice(`Seat request sent to the vehicle sharer for ${pickupLoc} → ${dropoffLoc}.`);
-        await loadMyTrips();
+        await loadMyTrips(true);
       }
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
@@ -1354,8 +1469,8 @@ export default function App() {
       }
 
       setNotice(`Booking request ${isAccept ? "accepted" : "rejected"}. Contact details shared!`);
-      await loadMyTrips();
-      await loadRides();
+      await loadMyTrips(true);
+      await loadRides(true);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -1367,11 +1482,38 @@ export default function App() {
   // Ride Lifecycle Management Handlers
   // ==============================================================================
 
-  function handleOpenCompleteModal(rideId) {
+  function handleOpenCompleteTripModal(bookingId) {
+    setLifecycleModal({
+      isOpen: true,
+      type: "complete_trip",
+      targetId: bookingId,
+      activePassengersCount: 0,
+      activePassengerNames: [],
+      error: "",
+    });
+  }
+
+  function handleOpenCompleteModal(targetId) {
+    // If targetId is actually a booking ID, delegate to passenger trip completion
+    const matchingBooking =
+      myBookings.find((b) => b.id === targetId) ||
+      incomingBookings.find((b) => b.id === targetId);
+
+    if (matchingBooking) {
+      return handleOpenCompleteTripModal(targetId);
+    }
+
+    const rideId = targetId;
+    const activeBookings = incomingBookings.filter(
+      (b) => b.ride_id === rideId && b.status === "accepted"
+    );
+
     setLifecycleModal({
       isOpen: true,
       type: "complete",
       targetId: rideId,
+      activePassengersCount: activeBookings.length,
+      activePassengerNames: activeBookings.map((b) => b.passenger_name || "SRM Student"),
       error: "",
     });
   }
@@ -1381,6 +1523,8 @@ export default function App() {
       isOpen: true,
       type: "cancel_sharing",
       targetId: rideId,
+      activePassengersCount: 0,
+      activePassengerNames: [],
       error: "",
     });
   }
@@ -1390,6 +1534,8 @@ export default function App() {
       isOpen: true,
       type: "withdraw_request",
       targetId: bookingId,
+      activePassengersCount: 0,
+      activePassengerNames: [],
       error: "",
     });
   }
@@ -1399,6 +1545,8 @@ export default function App() {
       isOpen: true,
       type: "cancel_booking",
       targetId: bookingId,
+      activePassengersCount: 0,
+      activePassengerNames: [],
       error: "",
     });
   }
@@ -1409,25 +1557,104 @@ export default function App() {
       isOpen: false,
       type: "complete",
       targetId: null,
+      activePassengersCount: 0,
+      activePassengerNames: [],
       error: "",
     });
   }
 
   async function handleConfirmLifecycleAction() {
-    const { type, targetId } = lifecycleModal;
+    const { type, targetId, activePassengersCount } = lifecycleModal;
     if (!targetId || !user) return;
 
     setLifecycleBusy(true);
     setLifecycleModal((prev) => ({ ...prev, error: "" }));
 
     try {
-      if (type === "complete") {
+      if (type === "complete_trip") {
+        const bookingId = targetId;
+        let completedSuccessfully = false;
+
+        // 1. Try Supabase RPC first
+        const { data: rpcData, error: rpcErr } = await supabase.rpc("complete_passenger_trip", {
+          p_booking_id: bookingId,
+        });
+
+        if (!rpcErr && rpcData?.success) {
+          completedSuccessfully = true;
+        } else {
+          if (rpcErr) {
+            console.warn("complete_passenger_trip RPC failed, trying direct table update:", rpcErr.message);
+          }
+
+          // 2. Direct table fallback: update ONLY this booking
+          const { data: updatedBookings, error: bookingErr } = await supabase
+            .from("bookings")
+            .update({ status: "completed" })
+            .eq("id", bookingId)
+            .select();
+
+          if (bookingErr) throw bookingErr;
+
+          if (updatedBookings && updatedBookings.length > 0) {
+            completedSuccessfully = true;
+          } else {
+            const { data: verifiedBooking } = await supabase
+              .from("bookings")
+              .select("id, status")
+              .eq("id", bookingId)
+              .maybeSingle();
+
+            if (verifiedBooking && verifiedBooking.status === "completed") {
+              completedSuccessfully = true;
+            } else {
+              throw new Error("Unable to complete passenger trip. Please verify authorization.");
+            }
+          }
+        }
+
+        if (completedSuccessfully) {
+          // Update passenger bookings local state
+          setMyBookings((prev) =>
+            prev.map((b) => (b.id === bookingId ? { ...b, status: "completed" } : b))
+          );
+          setIncomingBookings((prev) =>
+            prev.map((b) => (b.id === bookingId ? { ...b, status: "completed" } : b))
+          );
+
+          // Update passenger bookings cache map
+          const currentBooking =
+            myBookings.find((b) => b.id === bookingId) ||
+            incomingBookings.find((b) => b.id === bookingId);
+          const rideId = currentBooking?.ride_id;
+          if (rideId) {
+            setUserBookings((prev) => {
+              if (!prev || !prev[rideId]) return prev;
+              const updated = {
+                ...prev,
+                [rideId]: {
+                  ...prev[rideId],
+                  status: "completed",
+                },
+              };
+              cacheUserBookings(user.id, updated);
+              return updated;
+            });
+          }
+
+          setNotice("Trip completed successfully! Direct contact sharing for this trip has ended.");
+          handleCloseLifecycleModal();
+          await loadMyTrips(true);
+        }
+      } else if (type === "complete") {
         const rideId = targetId;
+        const hasActivePassengers = (activePassengersCount || 0) > 0;
         let completedSuccessfully = false;
 
         // 1. Try Supabase RPC first
         const { data: rpcData, error: rpcErr } = await supabase.rpc("complete_ride", {
           p_ride_id: rideId,
+          p_force: true,
         });
 
         if (!rpcErr && rpcData?.success) {
@@ -1442,6 +1669,7 @@ export default function App() {
             .from("rides")
             .update({ status: "completed", available_seats: 0 })
             .eq("id", rideId)
+            .eq("provider_id", user.id)
             .select();
 
           if (rideErr) throw rideErr;
@@ -1449,12 +1677,14 @@ export default function App() {
           if (updatedRides && updatedRides.length > 0) {
             completedSuccessfully = true;
 
-            // Update accepted bookings to completed
-            await supabase
-              .from("bookings")
-              .update({ status: "completed" })
-              .eq("ride_id", rideId)
-              .eq("status", "accepted");
+            // If forced completion with active passengers, update accepted bookings
+            if (hasActivePassengers) {
+              await supabase
+                .from("bookings")
+                .update({ status: "completed" })
+                .eq("ride_id", rideId)
+                .eq("status", "accepted");
+            }
 
             // Cancel any leftover pending bookings
             await supabase
@@ -1462,12 +1692,6 @@ export default function App() {
               .update({ status: "cancelled" })
               .eq("ride_id", rideId)
               .eq("status", "pending");
-
-            // Deactivate live locations
-            await supabase
-              .from("trip_live_locations")
-              .update({ is_active: false })
-              .eq("ride_id", rideId);
           } else {
             // Idempotency check: verify if the ride was already marked completed in the database
             const { data: verifiedRide } = await supabase
@@ -1479,33 +1703,14 @@ export default function App() {
             if (verifiedRide && verifiedRide.status === "completed") {
               completedSuccessfully = true;
             } else {
-              // The update was rejected or touched 0 rows due to RLS policies
               throw new Error(
-                "Unable to complete ride in database. Please ensure you are authorized (driver or accepted passenger) and that the complete_ride migration has been executed in your Supabase SQL editor."
+                "Unable to complete ride in database. Only the driver who offered this ride can complete it."
               );
             }
           }
         }
 
         if (completedSuccessfully) {
-          // Clean up user's local live location watcher/cache
-          const storageKey = `campusride_sharing_${rideId}_${user.id}`;
-          try { localStorage.removeItem(storageKey); } catch (_) {}
-
-          // Update passenger bookings cache if applicable
-          setUserBookings((prev) => {
-            if (!prev || !prev[rideId]) return prev;
-            const updated = {
-              ...prev,
-              [rideId]: {
-                ...prev[rideId],
-                status: "completed",
-              },
-            };
-            cacheUserBookings(user.id, updated);
-            return updated;
-          });
-
           // Remove ride from public state & cache immediately
           setRides((prev) => {
             const updated = prev.filter((r) => r.id !== rideId);
@@ -1513,7 +1718,11 @@ export default function App() {
             return updated;
           });
 
-          setNotice("Ride completed! Co-riders notified and contact/location sharing ended.");
+          setMyRides((prev) =>
+            prev.map((r) => (r.id === rideId ? { ...r, status: "completed", available_seats: 0 } : r))
+          );
+
+          setNotice("Ride completed! All remaining participant trips and contact sharing have ended.");
           handleCloseLifecycleModal();
           await loadRides();
           await loadMyTrips();
@@ -1541,16 +1750,7 @@ export default function App() {
             .from("bookings")
             .update({ status: "cancelled" })
             .eq("ride_id", rideId);
-
-          await supabase
-            .from("trip_live_locations")
-            .update({ is_active: false })
-            .eq("ride_id", rideId);
         }
-
-        // Clean up user's local live location watcher/cache
-        const storageKey = `campusride_sharing_${rideId}_${user.id}`;
-        try { localStorage.removeItem(storageKey); } catch (_) {}
 
         // Remove from public cache and state
         setRides((prev) => {
@@ -1559,7 +1759,7 @@ export default function App() {
           return updated;
         });
 
-        setNotice("Ride sharing cancelled. All requests closed and sharing ended.");
+        setNotice("Ride sharing cancelled. All requests closed and contact sharing ended.");
       } else if (type === "withdraw_request") {
         const bookingId = targetId;
 
@@ -1621,12 +1821,6 @@ export default function App() {
           }
         }
 
-        // Clean up passenger local live location cache
-        if (targetBooking?.ride_id) {
-          const storageKey = `campusride_sharing_${targetBooking.ride_id}_${user.id}`;
-          try { localStorage.removeItem(storageKey); } catch (_) {}
-        }
-
         setNotice("Confirmed booking cancelled. Seats returned to driver.");
       }
 
@@ -1639,8 +1833,8 @@ export default function App() {
       });
 
       // Synchronize database state without a full page reload
-      await loadMyTrips();
-      await loadRides();
+      await loadMyTrips(true);
+      await loadRides(true);
     } catch (err) {
       console.error("Lifecycle action error:", err);
       // Keep modal open and display clear error message to user
@@ -1798,6 +1992,7 @@ export default function App() {
             onCancelAcceptedBooking={handleOpenCancelBookingModal}
             onCancelSharing={handleOpenCancelSharingModal}
             onCompleteRide={handleOpenCompleteModal}
+            onCompleteTrip={handleOpenCompleteTripModal}
             onRefresh={handleRefresh}
             onOfferRideClick={() => handleNavigate("offer")}
             user={user}
@@ -1885,6 +2080,8 @@ export default function App() {
       <RideActionConfirmModal
         isOpen={lifecycleModal.isOpen}
         type={lifecycleModal.type}
+        activePassengersCount={lifecycleModal.activePassengersCount}
+        activePassengerNames={lifecycleModal.activePassengerNames}
         onConfirm={handleConfirmLifecycleAction}
         onClose={handleCloseLifecycleModal}
         busy={lifecycleBusy}

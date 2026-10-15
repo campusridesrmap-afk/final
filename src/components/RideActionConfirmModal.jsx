@@ -3,7 +3,9 @@ import { CheckCircle2, AlertTriangle, X, Loader2, Flag } from "lucide-react";
 
 export default function RideActionConfirmModal({
   isOpen,
-  type = "complete", // "complete" | "cancel_sharing" | "withdraw_request" | "cancel_booking"
+  type = "complete", // "complete" | "complete_trip" | "cancel_sharing" | "withdraw_request" | "cancel_booking"
+  activePassengersCount = 0,
+  activePassengerNames = [],
   onConfirm,
   onClose,
   busy = false,
@@ -30,26 +32,46 @@ export default function RideActionConfirmModal({
 
   let title = "Complete this ride?";
   let message =
-    "Are you sure you want to end this ride? Once you confirm, the ride will be marked as completed for both you and the other participants. Contact details and protected location information will no longer be available. This action cannot be undone.";
+    "Are you sure you want to end this ride? Once you confirm, the ride will be marked as completed. Contact details will no longer be available. This action cannot be undone.";
   let confirmText = "Yes, Complete Ride";
   let isDanger = false;
   let iconBg = "rgba(16, 185, 129, 0.12)";
   let iconColor = "#059669";
   let icon = <CheckCircle2 size={24} color={iconColor} />;
 
-  if (type === "complete") {
-    title = "Complete this ride?";
+  if (type === "complete_trip") {
+    title = "Complete this trip?";
     message =
-      "Are you sure you want to end this ride? Once you confirm, the ride will be marked as completed for both you and the other participants. Contact details and protected location information will no longer be available. This action cannot be undone.";
-    confirmText = "Yes, Complete Ride";
+      "Are you sure you want to mark this trip as completed? Once confirmed, this booking will be completed and contact sharing will end. Other participants on this ride will remain active.";
+    confirmText = "Yes, Complete Trip";
     isDanger = false;
     iconBg = "rgba(16, 185, 129, 0.12)";
     iconColor = "#059669";
     icon = <CheckCircle2 size={24} color={iconColor} />;
+  } else if (type === "complete" || type === "complete_ride") {
+    if (activePassengersCount > 0) {
+      const names = activePassengerNames.length > 0 ? ` (${activePassengerNames.join(", ")})` : "";
+      title = "Complete ride with active passengers?";
+      message = `There are still ${activePassengersCount} active accepted passenger(s)${names} on this ride. Completing the ride will end the trip for all remaining passengers and close contact sharing. Are you sure you want to end the overall ride?`;
+      confirmText = "Yes, End Entire Ride";
+      isDanger = true;
+      iconBg = "rgba(245, 158, 11, 0.12)";
+      iconColor = "#d97706";
+      icon = <AlertTriangle size={24} color={iconColor} />;
+    } else {
+      title = "Complete this ride?";
+      message =
+        "All passenger trips are completed (or no passengers joined). Are you sure you want to mark this ride as completed? This action cannot be undone.";
+      confirmText = "Yes, Complete Ride";
+      isDanger = false;
+      iconBg = "rgba(16, 185, 129, 0.12)";
+      iconColor = "#059669";
+      icon = <CheckCircle2 size={24} color={iconColor} />;
+    }
   } else if (type === "cancel_sharing") {
     title = "Cancel this ride sharing?";
     message =
-      "Are you sure you want to cancel this ride? Cancelling will make the ride unavailable for new requests and affect existing participants. All pending and accepted co-riders will be informed that the ride is cancelled. Contact details and live location sharing will be closed immediately. This action cannot be undone.";
+      "Are you sure you want to cancel this ride? Cancelling will make the ride unavailable for new requests and affect existing participants. All pending and accepted co-riders will be informed that the ride is cancelled. Contact details sharing will be closed immediately. This action cannot be undone.";
     confirmText = "Yes, Cancel Sharing";
     isDanger = true;
     iconBg = "rgba(225, 29, 72, 0.12)";
@@ -67,7 +89,7 @@ export default function RideActionConfirmModal({
   } else if (type === "cancel_booking") {
     title = "Cancel confirmed booking?";
     message =
-      "Are you sure you want to cancel your confirmed seat on this ride? Your reserved seats will be released back to the vehicle sharer, and contact and location sharing will be closed immediately. This action cannot be undone.";
+      "Are you sure you want to cancel your confirmed seat on this ride? Your reserved seats will be released back to the vehicle sharer, and contact sharing will be closed immediately. This action cannot be undone.";
     confirmText = "Yes, Cancel Booking";
     isDanger = true;
     iconBg = "rgba(225, 29, 72, 0.12)";

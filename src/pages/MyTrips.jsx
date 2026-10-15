@@ -12,6 +12,7 @@ export default function MyTrips({
   onCancelAcceptedBooking,
   onCancelSharing,
   onCompleteRide,
+  onCompleteTrip,
   onRefresh,
   onOfferRideClick,
   user,
@@ -242,7 +243,8 @@ export default function MyTrips({
                     booking={booking}
                     type="incoming"
                     onRespond={onBookingResponse}
-                    onComplete={onCompleteRide}
+                    onCompleteTrip={onCompleteTrip}
+                    onComplete={onCompleteTrip || onCompleteRide}
                     currentUser={user}
                     busy={busy}
                   />
@@ -283,7 +285,8 @@ export default function MyTrips({
                     type="outgoing"
                     onWithdraw={onWithdrawBooking}
                     onCancelBooking={onCancelAcceptedBooking}
-                    onComplete={onCompleteRide}
+                    onCompleteTrip={onCompleteTrip}
+                    onComplete={onCompleteTrip || onCompleteRide}
                     currentUser={user}
                     busy={busy}
                   />
