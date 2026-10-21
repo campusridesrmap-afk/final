@@ -55,7 +55,7 @@ export default function PasswordSetupModal({
         ) {
           throw new Error(rpcErr.message || "Failed to update password.");
         }
-        console.warn("set_user_password RPC fallback notice:", rpcErr.message);
+        // Fallback to auth.updateUser below if RPC is missing
       }
 
       // 2. Fallback only if RPC function does not exist in the database
@@ -78,8 +78,8 @@ export default function PasswordSetupModal({
                 .eq("id", userRes.data.user.id);
             }
           }
-        } catch (profileErr) {
-          console.warn("Could not clear must_change_password flag:", profileErr);
+        } catch (_profileErr) {
+          // Flag clearing failure handled gracefully
         }
       }
 

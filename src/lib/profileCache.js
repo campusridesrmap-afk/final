@@ -9,7 +9,80 @@
  */
 
 export const PROFILE_CACHE_PREFIX = "campusride_profile_";
+export const ADMIN_CACHE_PREFIX = "campusride_admin_";
 export const ACTIVE_USER_KEY = "campusride_active_user_id";
+
+/**
+ * Retrieves the cached admin status for a specific user ID.
+ * Returns false if no valid cache exists or user is not admin.
+ *
+ * @param {string} userId
+ * @returns {boolean}
+ */
+export function getCachedAdminStatus(userId) {
+  if (!userId || typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(`${ADMIN_CACHE_PREFIX}${userId}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed?.isAdmin);
+  } catch (_err) {
+    return false;
+  }
+}
+
+/**
+ * Retrieves cached pending registrations count for badge stability.
+ *
+ * @param {string} userId
+ * @returns {number}
+ */
+export function getCachedPendingRegistrationsCount(userId) {
+  if (!userId || typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(`${ADMIN_CACHE_PREFIX}${userId}`);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.pendingCount === "number" ? parsed.pendingCount : 0;
+  } catch (_err) {
+    return 0;
+  }
+}
+
+/**
+ * Saves the admin status and pending count for a specific user ID in localStorage.
+ *
+ * @param {string} userId
+ * @param {boolean} isAdmin
+ * @param {number} pendingCount
+ */
+export function cacheAdminStatus(userId, isAdmin, pendingCount = 0) {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    if (isAdmin) {
+      localStorage.setItem(
+        `${ADMIN_CACHE_PREFIX}${userId}`,
+        JSON.stringify({ isAdmin: true, pendingCount, cached_at: new Date().toISOString() })
+      );
+    } else {
+      localStorage.removeItem(`${ADMIN_CACHE_PREFIX}${userId}`);
+    }
+  } catch (_err) {
+    // Ignore storage write error
+  }
+}
+
+/**
+ * Clears cached admin status for a specific user ID.
+ *
+ * @param {string} userId
+ */
+export function clearCachedAdminStatus(userId) {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(`${ADMIN_CACHE_PREFIX}${userId}`);
+  } catch (_err) {}
+}
 
 /**
  * Validates whether profile data contains genuine student identity information.
@@ -53,8 +126,8 @@ export function getCachedUserProfile(userId) {
     if (parsed && parsed.id === userId && isValidProfileData(parsed)) {
       return parsed;
     }
-  } catch (err) {
-    console.warn("CampusRide: Error reading profile cache for user:", userId, err);
+  } catch (_err) {
+    // Read error fallback
   }
 
   return null;
@@ -72,7 +145,6 @@ export function cacheUserProfile(userId, profileData) {
   if (!userId || !profileData || typeof window === "undefined") return null;
 
   if (!isValidProfileData(profileData)) {
-    console.warn("CampusRide: Attempted to cache invalid profile details; skipping cache update.", profileData);
     return null;
   }
 
@@ -91,8 +163,7 @@ export function cacheUserProfile(userId, profileData) {
     localStorage.setItem(ACTIVE_USER_KEY, userId);
 
     return cleanProfile;
-  } catch (err) {
-    console.warn("CampusRide: Error writing profile cache:", err);
+  } catch (_err) {
     return null;
   }
 }
@@ -110,8 +181,8 @@ export function setActiveUserId(userId) {
     } else {
       localStorage.removeItem(ACTIVE_USER_KEY);
     }
-  } catch (err) {
-    console.warn("CampusRide: Error setting active user ID:", err);
+  } catch (_err) {
+    // Session tracking error handled silently
   }
 }
 
@@ -122,9 +193,13 @@ export function setActiveUserId(userId) {
 export function clearActiveUserSession() {
   if (typeof window === "undefined") return;
   try {
+    const activeUserId = localStorage.getItem(ACTIVE_USER_KEY);
+    if (activeUserId) {
+      localStorage.removeItem(`${ADMIN_CACHE_PREFIX}${activeUserId}`);
+    }
     localStorage.removeItem(ACTIVE_USER_KEY);
-  } catch (err) {
-    console.warn("CampusRide: Error clearing active user session:", err);
+  } catch (_err) {
+    // Clear session error handled silently
   }
 }
 
@@ -179,18 +254,28 @@ export function getInitialAuthAndProfile() {
     // Never treat cached profile data alone as proof of an authenticated session.
     if (sessionUser?.id) {
       const cached = getCachedUserProfile(sessionUser.id);
+      const cachedAdmin = getCachedAdminStatus(sessionUser.id);
+      const cachedPendingCount = getCachedPendingRegistrationsCount(sessionUser.id);
 
       return {
         initialSession: fullSession || { user: sessionUser },
         initialUser: sessionUser,
         initialProfile: cached,
+        initialIsAdmin: cachedAdmin,
+        initialPendingCount: cachedPendingCount,
       };
     }
-  } catch (err) {
-    console.warn("CampusRide: Error reading initial auth & profile from localStorage:", err);
+  } catch (_err) {
+    // Initial auth hydration error handled silently
   }
 
-  return { initialSession: null, initialUser: null, initialProfile: null };
+  return {
+    initialSession: null,
+    initialUser: null,
+    initialProfile: null,
+    initialIsAdmin: false,
+    initialPendingCount: 0,
+  };
 }
 
 /**

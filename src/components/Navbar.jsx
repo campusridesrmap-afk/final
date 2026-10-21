@@ -1,4 +1,4 @@
-import { Search, PlusCircle, Car, User, LogOut, Shield, Bell } from "lucide-react";
+import { Search, PlusCircle, Car, User, LogOut, ShieldCheck } from "lucide-react";
 import { CAMPUS_RIDE_LOGO } from "../assets/logo";
 
 export default function Navbar({
@@ -11,6 +11,8 @@ export default function Navbar({
   onOpenProfile,
   isProfileOpen = false,
   pendingRequestsCount = 0,
+  isAdmin = false,
+  pendingRegistrationsCount = 0,
 }) {
   const isFindOrDashboard = page === "find" || page === "dashboard";
 
@@ -66,6 +68,23 @@ export default function Navbar({
               <span className="nav-badge">{pendingRequestsCount}</span>
             )}
           </button>
+
+          {/* Admin-only Registrations Section */}
+          {isAdmin && (
+            <button
+              className={`nav-link ${page === "registrations" ? "active" : ""}`}
+              onClick={() => onNavigate("registrations")}
+              title="Admin Registrations Review"
+            >
+              <ShieldCheck size={16} style={{ color: "var(--primary)" }} />
+              <span>Registrations</span>
+              {pendingRegistrationsCount > 0 && (
+                <span className="nav-badge" style={{ background: "#ea580c" }}>
+                  {pendingRegistrationsCount}
+                </span>
+              )}
+            </button>
+          )}
         </nav>
 
         <div className="account-area">
@@ -169,6 +188,23 @@ export default function Navbar({
           </div>
           <span>Trips</span>
         </button>
+
+        {isAdmin && (
+          <button
+            className={`bottom-nav-item ${page === "registrations" ? "active" : ""}`}
+            onClick={() => onNavigate("registrations")}
+          >
+            <div className="bottom-nav-icon-wrapper">
+              <ShieldCheck size={20} />
+              {pendingRegistrationsCount > 0 && (
+                <span className="bottom-nav-badge" style={{ background: "#ea580c" }}>
+                  {pendingRegistrationsCount}
+                </span>
+              )}
+            </div>
+            <span>Admin</span>
+          </button>
+        )}
 
         <button
           className={`bottom-nav-item ${isProfileOpen || page === "profile" || (page === "auth" && !user && !authLoading) ? "active" : ""}`}

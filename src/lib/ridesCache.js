@@ -97,8 +97,7 @@ export function getCachedPublicRides() {
       });
 
     return validRides;
-  } catch (err) {
-    console.warn("CampusRide: Error reading public rides cache:", err);
+  } catch (_err) {
     return [];
   }
 }
@@ -130,8 +129,8 @@ export function cachePublicRides(rides) {
     };
 
     localStorage.setItem(RIDES_CACHE_KEY, JSON.stringify(payload));
-  } catch (err) {
-    console.warn("CampusRide: Error saving public rides cache:", err);
+  } catch (_err) {
+    // LocalStorage write error handled silently
   }
 }
 
@@ -142,8 +141,8 @@ export function clearPublicRidesCache() {
   if (typeof window === "undefined" || !window.localStorage) return;
   try {
     localStorage.removeItem(RIDES_CACHE_KEY);
-  } catch (err) {
-    console.warn("CampusRide: Error clearing public rides cache:", err);
+  } catch (_err) {
+    // LocalStorage remove error handled silently
   }
 }
 
@@ -188,8 +187,7 @@ export function getCachedExpiredTrips(userId) {
         if (timeB !== timeA) return timeB - timeA;
         return String(b.id || "").localeCompare(String(a.id || ""));
       });
-  } catch (err) {
-    console.warn("CampusRide: Error reading expired trips cache:", err);
+  } catch (_err) {
     return [];
   }
 }
@@ -230,8 +228,8 @@ export function cacheExpiredTrips(userId, rides) {
     };
 
     localStorage.setItem(key, JSON.stringify(payload));
-  } catch (err) {
-    console.warn("CampusRide: Error saving expired trips cache:", err);
+  } catch (_err) {
+    // LocalStorage write error handled silently
   }
 }
 
@@ -244,8 +242,8 @@ export function clearExpiredTripsCache(userId) {
   if (typeof window === "undefined" || !window.localStorage || !userId) return;
   try {
     localStorage.removeItem(`${EXPIRED_TRIPS_CACHE_PREFIX}${userId}`);
-  } catch (err) {
-    console.warn("CampusRide: Error clearing expired trips cache:", err);
+  } catch (_err) {
+    // LocalStorage remove error handled silently
   }
 }
 

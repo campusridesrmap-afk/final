@@ -55,7 +55,20 @@ export default function ProfileOnboarding({
 
       onSave(payload);
     } catch (err) {
-      setError(err.message || "Failed to save profile.");
+      if (
+        err?.message?.includes("profiles_registration_number_unique_idx") ||
+        (err?.code === "23505" &&
+          (err?.message?.includes("registration_number") ||
+           err?.details?.includes("registration_number") ||
+           err?.message?.includes("profiles_registration_number"))) ||
+        err?.code === "23505"
+      ) {
+        setError(
+          "This registration number already exists in another account. Please check your registration number and try again."
+        );
+      } else {
+        setError(err.message || "Failed to save profile.");
+      }
     } finally {
       setSaving(false);
     }

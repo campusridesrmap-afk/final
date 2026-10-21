@@ -9,6 +9,7 @@ import FindRide from "./pages/FindRide";
 import OfferRide from "./pages/OfferRide";
 import MyTrips from "./pages/MyTrips";
 import AuthPage from "./pages/AuthPage";
+import AdminRegistrations from "./pages/AdminRegistrations";
 import RideActionConfirmModal from "./components/RideActionConfirmModal";
 import {
   getInitialAuthAndProfile,
@@ -17,6 +18,8 @@ import {
   mergeProfileWithCache,
   clearActiveUserSession,
   setActiveUserId,
+  cacheAdminStatus,
+  clearCachedAdminStatus,
 } from "./lib/profileCache";
 import {
   getCachedPublicRides,
@@ -39,6 +42,13 @@ import "./App.css";
 
 function getErrorMessage(error) {
   if (!error) return "Something went wrong. Please try again.";
+  if (
+    error.message?.includes("profiles_registration_number_unique_idx") ||
+    (error.code === "23505" &&
+      (error.message?.includes("registration_number") || error.details?.includes("registration_number")))
+  ) {
+    return "This registration number already exists in another account. Please check your registration number and try again.";
+  }
   if (error.code === "23505") return "You have already requested this ride.";
   if (error.message && error.message.includes("rides_vehicle_type_check")) {
     return "Database error: 'Auto' vehicle type is restricted by Supabase check constraint. Please run the migration query in your Supabase SQL editor to enable 'Auto'.";
@@ -48,26 +58,35 @@ function getErrorMessage(error) {
 
 export default function App() {
   // Synchronously hydrate session and profile from localStorage on first render
-  // This completely eliminates profile flicker across page refreshes.
-  const { initialSession, initialProfile } = getInitialAuthAndProfile();
+  // This completely eliminates profile and navigation flicker across page refreshes.
+  const {
+    initialSession,
+    initialProfile,
+    initialIsAdmin = false,
+    initialPendingCount = 0,
+  } = getInitialAuthAndProfile();
 
   const [session, setSession] = useState(initialSession);
   const [authLoading, setAuthLoading] = useState(!initialSession);
   const [page, setPage] = useState(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").trim().toLowerCase();
-      if (["find", "dashboard", "offer", "trips", "auth"].includes(hash)) {
+      const validPages = ["find", "dashboard", "offer", "trips", "auth", "registrations"];
+      if (validPages.includes(hash)) {
         return hash;
       }
       try {
         const saved = localStorage.getItem("campusride_current_page");
-        if (saved && ["find", "dashboard", "offer", "trips", "auth"].includes(saved)) {
+        if (saved && validPages.includes(saved)) {
           return saved;
         }
       } catch {}
     }
     return "find";
   });
+
+  const [isAdmin, setIsAdmin] = useState(initialIsAdmin);
+  const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(initialPendingCount);
 
   const [profile, setProfile] = useState(initialProfile);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -141,124 +160,140 @@ export default function App() {
   // In-flight promise refs to deduplicate overlapping concurrent calls
   const loadRidesInFlightRef = useRef(null);
   const loadMyTripsInFlightRef = useRef(null);
+  const loadProfileInFlightRef = useRef(null);
+  // Initial mount & sync lifecycle refs
+  const initialRidesLoadedRef = useRef(false);
+  const lastLoadedTripsUserIdRef = useRef(null);
+  const lastHiddenTimeRef = useRef(0);
   // RPC throttling & concurrency refs to prevent repeated 400s or overlapping network calls
   const closeExpiredRpcInFlightRef = useRef(null);
   const lastCloseExpiredRpcTimeRef = useRef(0);
   const rpcSchemaErrorLoggedRef = useRef(false);
 
-  // Initialize Supabase Auth listener
+  // Check administrator authorization securely from Supabase
+  const checkAdminStatus = useCallback(async (userId) => {
+    if (!userId) {
+      setIsAdmin(false);
+      setPendingRegistrationsCount(0);
+      return false;
+    }
+    try {
+      const { data: adminData, error: adminErr } = await supabase.rpc("is_app_admin");
+      if (!adminErr && adminData === true) {
+        setIsAdmin(true);
+        // Load pending registrations count for badge
+        let pendingCount = 0;
+        const { data: pendingData } = await supabase.rpc("admin_get_registrations", {
+          p_status_filter: "pending",
+        });
+        if (Array.isArray(pendingData)) {
+          pendingCount = pendingData.length;
+          setPendingRegistrationsCount(pendingCount);
+        }
+        cacheAdminStatus(userId, true, pendingCount);
+        return true;
+      } else {
+        setIsAdmin(false);
+        setPendingRegistrationsCount(0);
+        cacheAdminStatus(userId, false, 0);
+        return false;
+      }
+    } catch {
+      setIsAdmin(false);
+      setPendingRegistrationsCount(0);
+      cacheAdminStatus(userId, false, 0);
+      return false;
+    }
+  }, []);
+
+  const handleRefreshAdminBadge = useCallback(() => {
+    if (activeUserIdRef.current) {
+      checkAdminStatus(activeUserIdRef.current);
+    }
+  }, [checkAdminStatus]);
+
+  // Synchronize active session and hydrate user state once per unique auth change
+  const applySession = useCallback((nextSession) => {
+    const nextUserId = nextSession?.user?.id ?? null;
+    activeUserIdRef.current = nextUserId;
+
+    if (!nextUserId) {
+      clearActiveUserSession();
+      setSession(null);
+      setProfile(null);
+      setUserBookings({});
+      setMyRides([]);
+      setMyBookings([]);
+      setIncomingBookings([]);
+      checkAdminStatus(null);
+      const guestExpired = getCachedExpiredTrips(null);
+      const guestActive = getCachedPublicRides();
+      const map = new Map();
+      [...guestActive, ...guestExpired].forEach((r) => {
+        if (r && r.id && !map.has(r.id)) {
+          map.set(r.id, r);
+        }
+      });
+      setRides(Array.from(map.values()));
+    } else {
+      setActiveUserId(nextUserId);
+      setSession(nextSession);
+      checkAdminStatus(nextUserId);
+
+      // Account isolation: Restore only this user's cached profile, bookings, and trips
+      const nextCached = getCachedUserProfile(nextUserId);
+      setProfile(nextCached || null);
+      setUserBookings(getCachedUserBookings(nextUserId));
+      const nextCachedTrips = getCachedUserTrips(nextUserId);
+      setMyRides(nextCachedTrips.myRides);
+      setMyBookings(nextCachedTrips.myBookings);
+      setIncomingBookings(nextCachedTrips.incomingBookings);
+      const nextCachedExpired = getCachedExpiredTrips(nextUserId);
+      const cachedActive = getCachedPublicRides();
+      const map = new Map();
+      [...cachedActive, ...nextCachedExpired].forEach((r) => {
+        if (r && r.id && !map.has(r.id)) {
+          map.set(r.id, r);
+        }
+      });
+      setRides(Array.from(map.values()));
+    }
+  }, [checkAdminStatus]);
+
+  const lastProcessedTokenRef = useRef(initialSession?.access_token ?? null);
+  const authInitializedRef = useRef(false);
+
+  // Initialize Supabase Auth listener with deduplication to prevent double-execution on page refresh
   useEffect(() => {
     let alive = true;
 
-    async function initAuth() {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (!alive) return;
-        if (error) setErrorMessage(getErrorMessage(error));
-
-        const nextSession = data?.session ?? null;
-        const nextUserId = nextSession?.user?.id ?? null;
-        activeUserIdRef.current = nextUserId;
-
-        if (nextUserId) {
-          setActiveUserId(nextUserId);
-          setSession(nextSession);
-
-          // Restore matching cached profile immediately if not already active
-          const cached = getCachedUserProfile(nextUserId);
-          if (cached) {
-            setProfile(cached);
-          }
-          const cachedBookings = getCachedUserBookings(nextUserId);
-          if (cachedBookings && Object.keys(cachedBookings).length > 0) {
-            setUserBookings(cachedBookings);
-          }
-          const cachedTrips = getCachedUserTrips(nextUserId);
-          if (cachedTrips.myRides.length > 0 || cachedTrips.myBookings.length > 0 || cachedTrips.incomingBookings.length > 0) {
-            setMyRides(cachedTrips.myRides);
-            setMyBookings(cachedTrips.myBookings);
-            setIncomingBookings(cachedTrips.incomingBookings);
-          }
-          const cachedExpired = getCachedExpiredTrips(nextUserId);
-          if (cachedExpired.length > 0) {
-            setRides((prev) => {
-              const active = prev.filter((r) => {
-                const dep = new Date(r.departure_at).getTime();
-                return isNaN(dep) || dep > Date.now();
-              });
-              const map = new Map();
-              [...active, ...cachedExpired].forEach((r) => {
-                if (r && r.id && !map.has(r.id)) {
-                  map.set(r.id, r);
-                }
-              });
-              return Array.from(map.values());
-            });
-          }
-        } else {
-          clearActiveUserSession();
-          setSession(null);
-          setProfile(null);
-          setUserBookings({});
-          setMyRides([]);
-          setMyBookings([]);
-          setIncomingBookings([]);
-        }
-      } catch (err) {
-        if (alive) setErrorMessage(getErrorMessage(err));
-      } finally {
-        if (alive) setAuthLoading(false);
-      }
-    }
-
-    initAuth();
-
+    // Listen for auth changes (login, logout, token refresh)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      const nextUserId = nextSession?.user?.id ?? null;
-      activeUserIdRef.current = nextUserId;
+      const token = nextSession?.access_token ?? null;
+      // Skip redundant initial hydration if identical session was already applied
+      if (authInitializedRef.current && token === lastProcessedTokenRef.current) {
+        return;
+      }
+      lastProcessedTokenRef.current = token;
+      authInitializedRef.current = true;
+      if (alive) {
+        applySession(nextSession);
+        setAuthLoading(false);
+      }
+    });
 
-      if (!nextUserId) {
-        // Clear active profile state immediately on logout for strict account isolation
-        clearActiveUserSession();
-        setSession(null);
-        setProfile(null);
-        setUserBookings({});
-        setMyRides([]);
-        setMyBookings([]);
-        setIncomingBookings([]);
-        const guestExpired = getCachedExpiredTrips(null);
-        const guestActive = getCachedPublicRides();
-        const map = new Map();
-        [...guestActive, ...guestExpired].forEach((r) => {
-          if (r && r.id && !map.has(r.id)) {
-            map.set(r.id, r);
-          }
-        });
-        setRides(Array.from(map.values()));
-      } else {
-        setActiveUserId(nextUserId);
-        setSession(nextSession);
-
-        // Account isolation: Immediately restore only this user's cached profile, bookings, and trips
-        // Never show a previous student's profile or trips during account switching
-        const nextCached = getCachedUserProfile(nextUserId);
-        setProfile(nextCached || null);
-        setUserBookings(getCachedUserBookings(nextUserId));
-        const nextCachedTrips = getCachedUserTrips(nextUserId);
-        setMyRides(nextCachedTrips.myRides);
-        setMyBookings(nextCachedTrips.myBookings);
-        setIncomingBookings(nextCachedTrips.incomingBookings);
-        const nextCachedExpired = getCachedExpiredTrips(nextUserId);
-        const cachedActive = getCachedPublicRides();
-        const map = new Map();
-        [...cachedActive, ...nextCachedExpired].forEach((r) => {
-          if (r && r.id && !map.has(r.id)) {
-            map.set(r.id, r);
-          }
-        });
-        setRides(Array.from(map.values()));
+    // Verification check on mount: runs only if onAuthStateChange has not already processed the session
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!alive) return;
+      if (error) setErrorMessage(getErrorMessage(error));
+      const nextSession = data?.session ?? null;
+      const token = nextSession?.access_token ?? null;
+      if (!authInitializedRef.current || token !== lastProcessedTokenRef.current) {
+        lastProcessedTokenRef.current = token;
+        authInitializedRef.current = true;
+        applySession(nextSession);
       }
       setAuthLoading(false);
     });
@@ -267,7 +302,37 @@ export default function App() {
       alive = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [applySession]);
+
+  // Handle service worker push notification clicks and hash navigation to the admin registrations screen
+  useEffect(() => {
+    function handleServiceWorkerMessage(event) {
+      if (event.data?.type === "NAVIGATE" && event.data?.page === "registrations") {
+        if (isAdmin) {
+          setPage("registrations");
+        }
+      }
+    }
+
+    function handleHashChange() {
+      const hash = window.location.hash.replace("#", "").trim().toLowerCase();
+      if (hash === "registrations" && isAdmin) {
+        setPage("registrations");
+      }
+    }
+
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+    }
+    window.addEventListener("hashchange", handleHashChange);
+
+    return () => {
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+      }
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, [isAdmin]);
 
   // Load user profile details in the background from Supabase
   const loadProfile = useCallback(async (userId) => {
@@ -278,42 +343,55 @@ export default function App() {
 
     const targetUserId = userId;
 
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, registration_number, mobile_number, profile_completed, must_change_password")
-        .eq("id", targetUserId)
-        .maybeSingle();
-
-      // Guard: Discard stale response if user logged out or switched accounts during fetch
-      if (activeUserIdRef.current !== targetUserId) {
-        return null;
-      }
-
-      if (error && error.code !== "PGRST116") {
-        console.warn("Profile load warning:", error.message);
-      }
-
-      // Safely merge network response with cache:
-      // Valid fresh data updates state & cache.
-      // If network returns empty/fallback, valid cached profile is preserved!
-      const resolvedProfile = mergeProfileWithCache(targetUserId, data);
-
-      if (activeUserIdRef.current === targetUserId && resolvedProfile) {
-        setProfile(resolvedProfile);
-      }
-
-      return resolvedProfile;
-    } catch (err) {
-      console.warn("CampusRide: Network error while fetching profile:", err);
-      // Retain existing valid cache on network failure
-      const existingCached = getCachedUserProfile(targetUserId);
-      if (activeUserIdRef.current === targetUserId && existingCached) {
-        setProfile(existingCached);
-        return existingCached;
-      }
-      return null;
+    if (loadProfileInFlightRef.current && loadProfileInFlightRef.current.userId === targetUserId) {
+      return loadProfileInFlightRef.current.promise;
     }
+
+    const task = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, full_name, registration_number, mobile_number, profile_completed, must_change_password")
+          .eq("id", targetUserId)
+          .maybeSingle();
+
+        // Guard: Discard stale response if user logged out or switched accounts during fetch
+        if (activeUserIdRef.current !== targetUserId) {
+          return null;
+        }
+
+        if (error && error.code !== "PGRST116") {
+          // Non-blocking profile load notice
+        }
+
+        // Safely merge network response with cache:
+        // Valid fresh data updates state & cache.
+        // If network returns empty/fallback, valid cached profile is preserved!
+        const resolvedProfile = mergeProfileWithCache(targetUserId, data);
+
+        if (activeUserIdRef.current === targetUserId && resolvedProfile) {
+          setProfile(resolvedProfile);
+        }
+
+        return resolvedProfile;
+      } catch (_err) {
+        // Retain existing valid cache on network failure
+        // Retain existing valid cache on network failure
+        const existingCached = getCachedUserProfile(targetUserId);
+        if (activeUserIdRef.current === targetUserId && existingCached) {
+          setProfile(existingCached);
+          return existingCached;
+        }
+        return null;
+      } finally {
+        if (loadProfileInFlightRef.current?.userId === targetUserId) {
+          loadProfileInFlightRef.current = null;
+        }
+      }
+    })();
+
+    loadProfileInFlightRef.current = { userId: targetUserId, promise: task };
+    return task;
   }, []);
 
   useEffect(() => {
@@ -337,7 +415,12 @@ export default function App() {
 
     const task = (async () => {
       const requestId = ++ridesRequestIdRef.current;
-      setDataLoading(true);
+      setRides((current) => {
+        if (force || current.length === 0) {
+          setDataLoading(true);
+        }
+        return current;
+      });
       try {
         // 1. Reliably fetch all records page-by-page to prevent silent truncations
         const PAGE_SIZE = 100;
@@ -384,7 +467,6 @@ export default function App() {
         if (requestId !== ridesRequestIdRef.current) return;
 
         const rawRides = allRides;
-        console.log(`CampusRide: Loaded ${rawRides.length} total rides from DB across ${pageIndex + 1} page(s):`, rawRides);
 
         // Fetch provider display names in chunks of 50 to avoid query URL parameter overflow
         const providerIds = [...new Set(rawRides.map((r) => r.provider_id))].filter(Boolean);
@@ -403,8 +485,8 @@ export default function App() {
                 profilesMap[p.id] = p;
               });
             }
-          } catch (profErr) {
-            console.warn("Unable to load public driver names:", profErr);
+          } catch (_profErr) {
+            // Silently fallback if driver profile names chunk cannot be retrieved
           }
         }
 
@@ -445,8 +527,6 @@ export default function App() {
         setRides((currentRides) => {
           if (currentRides.length === 0) {
             setRidesError(getErrorMessage(error));
-          } else {
-            console.warn("CampusRide: Network error fetching rides, retaining cached data.");
           }
           return currentRides;
         });
@@ -481,21 +561,13 @@ export default function App() {
         if (error) {
           if (error.code === "23514") {
             // Check constraint violation in PostgreSQL: bookings_status_check lacks 'expired'
-            if (!rpcSchemaErrorLoggedRef.current) {
-              console.warn(
-                "CampusRide: Database check constraint 'bookings_status_check' requires migration to include 'expired'. Expired bookings are handled seamlessly on client.",
-                error.message
-              );
-              rpcSchemaErrorLoggedRef.current = true;
-            }
-          } else {
-            console.warn("CampusRide: RPC close_expired_pending_bookings notice:", error.message);
+            rpcSchemaErrorLoggedRef.current = true;
           }
         } else {
           rpcSchemaErrorLoggedRef.current = false;
         }
-      } catch (err) {
-        console.warn("CampusRide: RPC close_expired_pending_bookings network exception:", err);
+      } catch (_err) {
+        // Background RPC notice
       } finally {
         closeExpiredRpcInFlightRef.current = null;
       }
@@ -569,7 +641,6 @@ export default function App() {
             return { ...b, status: effectiveStatus };
           });
         } else {
-          console.warn("Joined bookings query returned error, trying flat query:", bErr?.message);
           const { data: flatData, error: flatErr } = await supabase
             .from("bookings")
             .select("*")
@@ -602,7 +673,6 @@ export default function App() {
           }
         }
       } catch (bookEx) {
-        console.warn("Exception retrieving passenger bookings:", bookEx);
         throw bookEx;
       }
 
@@ -710,7 +780,6 @@ export default function App() {
               incomingList.push(...requests);
             }
           } catch (reqErr) {
-            console.warn("Exception retrieving incoming requests:", reqErr);
             throw reqErr;
           }
         }
@@ -809,7 +878,6 @@ export default function App() {
         myBookings: processedMyBookings,
       });
     } catch (error) {
-      console.warn("CampusRide: Network error while loading trips:", error);
       if (requestId === tripsRequestIdRef.current) {
         setTripsError(getErrorMessage(error));
       }
@@ -853,14 +921,22 @@ export default function App() {
   // Load rides once authLoading settles, and re-fetch whenever the authenticated user ID changes
   useEffect(() => {
     if (!authLoading) {
-      loadRides();
+      if (!initialRidesLoadedRef.current || (user?.id && user.id !== lastLoadedTripsUserIdRef.current)) {
+        initialRidesLoadedRef.current = true;
+        loadRides();
+      }
     }
   }, [authLoading, user?.id, loadRides]);
 
   // Load authenticated user trips & bookings once authLoading settles and whenever user changes
   useEffect(() => {
     if (!authLoading && user?.id) {
-      loadMyTrips();
+      if (lastLoadedTripsUserIdRef.current !== user.id) {
+        lastLoadedTripsUserIdRef.current = user.id;
+        loadMyTrips();
+      }
+    } else if (!user?.id) {
+      lastLoadedTripsUserIdRef.current = null;
     }
   }, [authLoading, user?.id, loadMyTrips]);
 
@@ -874,14 +950,14 @@ export default function App() {
     syncTimerRef.current = setTimeout(async () => {
       syncTimerRef.current = null;
       try {
-        await loadRides(true);
+        await loadRides(false);
       } catch (_) {}
       if (activeUserIdRef.current) {
         try {
-          await loadMyTrips(true, true);
+          await loadMyTrips(false, true);
         } catch (_) {}
       }
-    }, 150);
+    }, 300);
   }, [loadRides, loadMyTrips]);
 
   // 1. Public Rides Realtime synchronization (active for all users, including visitors & guests)
@@ -915,12 +991,7 @@ export default function App() {
           scheduleRealtimeSync();
         }
       )
-      .subscribe((status, err) => {
-        if (err) console.warn("Public rides Realtime warning:", err);
-        if (status === "SUBSCRIBED") {
-          scheduleRealtimeSync();
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
@@ -964,31 +1035,30 @@ export default function App() {
           scheduleRealtimeSync();
         }
       )
-      .subscribe((status, err) => {
-        if (err) console.warn("User bookings Realtime warning:", err);
-        if (status === "SUBSCRIBED") {
-          scheduleRealtimeSync();
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [user?.id, scheduleRealtimeSync]);
 
-  // 3. Tab visibility / focus resync for catching missed events on mobile unlock or tab return
+  // 3. Tab visibility resync for catching missed events on mobile unlock or tab return
   useEffect(() => {
-    function handleVisibilityOrFocus() {
-      if (document.visibilityState === "visible") {
-        scheduleRealtimeSync();
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        lastHiddenTimeRef.current = Date.now();
+      } else if (document.visibilityState === "visible") {
+        const elapsed = Date.now() - lastHiddenTimeRef.current;
+        // Only resync if the tab was away for more than 30 seconds
+        if (lastHiddenTimeRef.current > 0 && elapsed > 30000) {
+          scheduleRealtimeSync();
+        }
       }
     }
 
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [scheduleRealtimeSync]);
 
@@ -1032,10 +1102,27 @@ export default function App() {
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      const { data, error } = await supabase.auth.signInWithPassword({
+      let { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
       });
+
+      // Gracefully handle students typing their temporary password (registration number) in lowercase
+      if (
+        error &&
+        password &&
+        password !== password.toUpperCase() &&
+        /^[a-zA-Z]{2}[0-9a-zA-Z]{6,16}$/.test(password.trim())
+      ) {
+        const retryRes = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password.trim().toUpperCase(),
+        });
+        if (!retryRes.error && retryRes.data?.user) {
+          data = retryRes.data;
+          error = null;
+        }
+      }
 
       if (error) throw error;
       if (!data.user) throw new Error("Login failed.");
@@ -1159,6 +1246,9 @@ export default function App() {
       } catch {}
 
       setPage("find");
+      setIsAdmin(false);
+      setPendingRegistrationsCount(0);
+      clearCachedAdminStatus(user?.id);
       setNotice("You have successfully signed out.");
       // Reload public active rides so guest dashboard remains populated
       await loadRides();
@@ -1442,7 +1532,6 @@ export default function App() {
 
       // 2. If RPC fails or is missing, fallback to direct table updates safely
       if (rpcError) {
-        console.warn("RPC call failed, applying fallback direct update:", rpcError.message);
         const nextStatus = isAccept ? "accepted" : "rejected";
 
         const { error: bookingUpdateErr } = await supabase
@@ -1583,10 +1672,6 @@ export default function App() {
         if (!rpcErr && rpcData?.success) {
           completedSuccessfully = true;
         } else {
-          if (rpcErr) {
-            console.warn("complete_passenger_trip RPC failed, trying direct table update:", rpcErr.message);
-          }
-
           // 2. Direct table fallback: update ONLY this booking
           const { data: updatedBookings, error: bookingErr } = await supabase
             .from("bookings")
@@ -1660,10 +1745,6 @@ export default function App() {
         if (!rpcErr && rpcData?.success) {
           completedSuccessfully = true;
         } else {
-          if (rpcErr) {
-            console.warn("complete_ride RPC unavailable or failed, attempting direct table update:", rpcErr.message);
-          }
-
           // 2. Direct table update fallback with row verification
           const { data: updatedRides, error: rideErr } = await supabase
             .from("rides")
@@ -1736,8 +1817,6 @@ export default function App() {
         });
 
         if (rpcErr) {
-          console.warn("cancel_ride_sharing RPC failed, applying fallback updates:", rpcErr.message);
-
           // Fallback direct update
           const { error: rideErr } = await supabase
             .from("rides")
@@ -1769,8 +1848,6 @@ export default function App() {
         });
 
         if (rpcErr) {
-          console.warn("withdraw_booking_request RPC failed, applying fallback update:", rpcErr.message);
-
           const { error: bookErr } = await supabase
             .from("bookings")
             .update({ status: "cancelled" })
@@ -1791,8 +1868,6 @@ export default function App() {
         });
 
         if (rpcErr) {
-          console.warn("cancel_accepted_booking RPC failed, applying fallback update:", rpcErr.message);
-
           const { error: bookErr } = await supabase
             .from("bookings")
             .update({ status: "cancelled" })
@@ -1852,6 +1927,11 @@ export default function App() {
     setErrorMessage("");
 
     const targetPage = nextPage === "dashboard" ? "find" : nextPage;
+
+    if (targetPage === "registrations" && !isAdmin) {
+      setPage("find");
+      return;
+    }
 
     if (["offer", "trips"].includes(targetPage)) {
       if (authLoading) {
@@ -1924,6 +2004,8 @@ export default function App() {
         onOpenProfile={() => setShowProfileModal(true)}
         isProfileOpen={showProfileModal}
         pendingRequestsCount={pendingIncomingCount}
+        isAdmin={isAdmin}
+        pendingRegistrationsCount={pendingRegistrationsCount}
       />
 
       <main className="main-content">
@@ -2008,6 +2090,12 @@ export default function App() {
             busy={busy}
             errorMessage={errorMessage}
             onClearError={() => setErrorMessage("")}
+          />
+        )}
+
+        {page === "registrations" && isAdmin && (
+          <AdminRegistrations
+            onRefreshHeaderBadge={handleRefreshAdminBadge}
           />
         )}
         </>

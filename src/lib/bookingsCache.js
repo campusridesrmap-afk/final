@@ -34,8 +34,7 @@ export function getCachedUserBookings(userId) {
     }
 
     return parsed.bookings || {};
-  } catch (err) {
-    console.warn("CampusRide: Error reading user bookings cache:", err);
+  } catch (_err) {
     return {};
   }
 }
@@ -96,8 +95,8 @@ export function cacheUserBookings(userId, bookings) {
     };
 
     localStorage.setItem(`${BOOKINGS_CACHE_PREFIX}${userId}`, JSON.stringify(payload));
-  } catch (err) {
-    console.warn("CampusRide: Error saving user bookings cache:", err);
+  } catch (_err) {
+    // LocalStorage quota or access error handled silently
   }
 }
 
@@ -110,7 +109,7 @@ export function clearUserBookingsCache(userId) {
   if (typeof window === "undefined" || !window.localStorage || !userId) return;
   try {
     localStorage.removeItem(`${BOOKINGS_CACHE_PREFIX}${userId}`);
-  } catch (err) {
-    console.warn("CampusRide: Error clearing user bookings cache:", err);
+  } catch (_err) {
+    // LocalStorage access error handled silently
   }
 }

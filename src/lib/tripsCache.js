@@ -149,8 +149,7 @@ export function getCachedUserTrips(userId) {
       : [];
 
     return { myRides, incomingBookings, myBookings };
-  } catch (err) {
-    console.warn("CampusRide: Error reading trips cache for user:", userId, err);
+  } catch (_err) {
     return emptyState;
   }
 }
@@ -189,8 +188,8 @@ export function cacheUserTrips(userId, { myRides = [], incomingBookings = [], my
     };
 
     localStorage.setItem(`${TRIPS_CACHE_PREFIX}${userId}`, JSON.stringify(payload));
-  } catch (err) {
-    console.warn("CampusRide: Error writing trips cache for user:", userId, err);
+  } catch (_err) {
+    // LocalStorage write error handled silently
   }
 }
 
@@ -203,7 +202,7 @@ export function clearUserTripsCache(userId) {
   if (typeof window === "undefined" || !window.localStorage || !userId) return;
   try {
     localStorage.removeItem(`${TRIPS_CACHE_PREFIX}${userId}`);
-  } catch (err) {
-    console.warn("CampusRide: Error clearing trips cache for user:", userId, err);
+  } catch (_err) {
+    // LocalStorage remove error handled silently
   }
 }
