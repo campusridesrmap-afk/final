@@ -46,6 +46,10 @@ CREATE INDEX IF NOT EXISTS idx_email_otp_challenges_created_at
 -- Enable RLS (access is strictly through Edge Functions with service role or Security Definer RPCs)
 ALTER TABLE public.email_otp_challenges ENABLE ROW LEVEL SECURITY;
 
+-- Ensure registrations table has expected audit columns
+ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
+ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS rejection_reason text DEFAULT '';
+
 -- ==============================================================================
 -- 2. Self-Contained Student User Account & Profile Provisioning Function
 -- ==============================================================================
@@ -345,9 +349,7 @@ BEGIN
         status = 'approved',
         access_token_hash = v_token_hash,
         reviewed_at = now(),
-        reviewed_by = NULL,
         rejection_reason = 'Auto-approved via verified SRM email OTP',
-        welcome_email_status = 'not_sent',
         updated_at = now()
     WHERE id = v_existing_reg_id;
 
@@ -362,9 +364,7 @@ BEGIN
       status,
       access_token_hash,
       reviewed_at,
-      reviewed_by,
       rejection_reason,
-      welcome_email_status,
       created_at,
       updated_at
     ) VALUES (
@@ -376,9 +376,7 @@ BEGIN
       'approved',
       v_token_hash,
       now(),
-      NULL,
       'Auto-approved via verified SRM email OTP',
-      'not_sent',
       now(),
       now()
     )
