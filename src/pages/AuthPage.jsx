@@ -895,7 +895,7 @@ export default function AuthPage({
                       required
                       value={regFullName}
                       onChange={(e) => setRegFullName(e.target.value)}
-                      placeholder=""
+                      placeholder="student name"
                       disabled={regBusy}
                     />
                   </div>
@@ -1043,7 +1043,7 @@ export default function AuthPage({
                       required
                       value={regNumber}
                       onChange={(e) => setRegNumber(e.target.value.toUpperCase())}
-                      placeholder=""
+                      placeholder="Registration Number"
                       disabled={regBusy}
                     />
                   </div>
