@@ -1,19 +1,23 @@
 -- ==============================================================================
--- CampusRide: Secure Email OTP Verification Migration
+-- CampusRide: Complete Email OTP Registration & Automatic User Creation Migration
 -- SRM University-AP Carpooling Platform
 --
 -- Description:
--- 1. Creates `public.email_otp_challenges` table for secure, rate-limited,
---    single-use OTP verification challenges.
--- 2. Enforces Row Level Security (RLS) ensuring challenges cannot be read or
---    tampered with directly by clients.
--- 3. Updates `submit_student_registration` to require a server-validated,
---    single-use verification token bound to the student's normalized SRM email.
+-- 1. Creates `public.email_otp_challenges` table for rate-limited, single-use OTPs.
+-- 2. Defines self-contained `public.admin_create_student_user` function that directly
+--    provisions the user in `auth.users` with encrypted temporary password (reg number)
+--    and creates the corresponding profile in `public.profiles` with `must_change_password = true`.
+-- 3. Defines `public.submit_student_registration` to validate the OTP verification proof,
+--    call `admin_create_student_user`, and mark registration `approved` automatically.
 -- ==============================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Enable required cryptographic extensions
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
--- 1. Create table for email OTP challenges
+-- ==============================================================================
+-- 1. Create table for email OTP verification challenges
+-- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.email_otp_challenges (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   normalized_email text NOT NULL,
@@ -29,7 +33,7 @@ CREATE TABLE IF NOT EXISTS public.email_otp_challenges (
   created_at timestamptz DEFAULT now()
 );
 
--- Optimized indexes for rapid lookup and rate limiting
+-- Optimized indexes for fast lookup and rate limiting
 CREATE INDEX IF NOT EXISTS idx_email_otp_challenges_email_exp 
   ON public.email_otp_challenges (normalized_email, expires_at);
 
@@ -39,10 +43,143 @@ CREATE INDEX IF NOT EXISTS idx_email_otp_challenges_token_hash
 CREATE INDEX IF NOT EXISTS idx_email_otp_challenges_created_at 
   ON public.email_otp_challenges (normalized_email, created_at);
 
--- Enable RLS: Zero direct client access (access is strictly through Edge Functions with service role or Security Definer RPCs)
+-- Enable RLS (access is strictly through Edge Functions with service role or Security Definer RPCs)
 ALTER TABLE public.email_otp_challenges ENABLE ROW LEVEL SECURITY;
 
--- 2. Update submit_student_registration to require valid email verification proof
+-- ==============================================================================
+-- 2. Self-Contained Student User Account & Profile Provisioning Function
+-- ==============================================================================
+DROP FUNCTION IF EXISTS public.admin_create_student_user(text, text, text, text);
+
+CREATE OR REPLACE FUNCTION public.admin_create_student_user(
+  p_email text,
+  p_full_name text,
+  p_registration_number text,
+  p_temp_password text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  v_clean_email text;
+  v_clean_name text;
+  v_clean_reg text;
+  v_user_id uuid;
+  v_existing_id uuid;
+  v_encrypted_pw text;
+BEGIN
+  v_clean_email := lower(trim(p_email));
+  v_clean_name := trim(p_full_name);
+  v_clean_reg := upper(trim(p_registration_number));
+
+  IF v_clean_email = '' OR NOT (v_clean_email LIKE '%@srmap.edu.in') THEN
+    RAISE EXCEPTION 'Invalid SRM email address: %', v_clean_email;
+  END IF;
+
+  IF length(p_temp_password) < 6 THEN
+    RAISE EXCEPTION 'Temporary password must be at least 6 characters.';
+  END IF;
+
+  -- Check if user already exists in auth.users
+  SELECT id INTO v_existing_id
+  FROM auth.users
+  WHERE lower(trim(email)) = v_clean_email;
+
+  IF v_existing_id IS NOT NULL THEN
+    -- Ensure profile exists and is linked
+    INSERT INTO public.profiles (
+      id, full_name, registration_number, mobile_number, profile_completed, must_change_password, created_at, updated_at
+    ) VALUES (
+      v_existing_id, v_clean_name, v_clean_reg, '', false, true, now(), now()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      full_name = EXCLUDED.full_name,
+      registration_number = EXCLUDED.registration_number,
+      must_change_password = true,
+      updated_at = now();
+
+    RETURN v_existing_id;
+  END IF;
+
+  -- Generate new user UUID and encrypt password using blowfish (standard GoTrue bcrypt format)
+  v_user_id := gen_random_uuid();
+  v_encrypted_pw := extensions.crypt(p_temp_password, extensions.gen_salt('bf'));
+
+  -- Insert directly into auth.users with confirmed email and metadata
+  INSERT INTO auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    is_sso_user,
+    created_at,
+    updated_at,
+    confirmation_token
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000000'::uuid,
+    v_user_id,
+    'authenticated',
+    'authenticated',
+    v_clean_email,
+    v_encrypted_pw,
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object(
+      'full_name', v_clean_name,
+      'registration_number', v_clean_reg,
+      'must_change_password', true
+    ),
+    false,
+    now(),
+    now(),
+    ''
+  );
+
+  -- Insert corresponding profile record with must_change_password = true
+  INSERT INTO public.profiles (
+    id,
+    full_name,
+    registration_number,
+    mobile_number,
+    profile_completed,
+    must_change_password,
+    created_at,
+    updated_at
+  ) VALUES (
+    v_user_id,
+    v_clean_name,
+    v_clean_reg,
+    '',
+    false,
+    true,
+    now(),
+    now()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    registration_number = EXCLUDED.registration_number,
+    must_change_password = true,
+    updated_at = now();
+
+  RETURN v_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_create_student_user(text, text, text, text) TO authenticated, anon;
+
+-- ==============================================================================
+-- 3. Atomic Registration Submission & Auto-Approval Function
+-- ==============================================================================
+DROP FUNCTION IF EXISTS public.submit_student_registration(text, text, text, text);
+DROP FUNCTION IF EXISTS public.submit_student_registration(text, text, text);
+
 CREATE OR REPLACE FUNCTION public.submit_student_registration(
   p_full_name text,
   p_email text,
@@ -59,15 +196,13 @@ DECLARE
   v_clean_email text;
   v_clean_reg text;
   v_existing_auth_id uuid;
-  v_active_reg record;
-  v_active_reg_by_no record;
-  v_rejected_reg record;
   v_challenge record;
   v_proof_hash text;
   v_raw_token text;
   v_token_hash text;
   v_new_id uuid;
   v_new_user_id uuid;
+  v_existing_reg_id uuid;
 BEGIN
   -- Trim and normalize input
   v_clean_name := trim(p_full_name);
@@ -87,7 +222,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'code', 'INVALID_REG_NO', 'message', 'Please enter a valid SRM registration number.');
   END IF;
 
-  -- Case A: Check if an active account already exists in auth.users
+  -- 1. Check if an active account already exists in auth.users
   SELECT id INTO v_existing_auth_id
   FROM auth.users
   WHERE lower(trim(email)) = v_clean_email;
@@ -100,7 +235,7 @@ BEGIN
     );
   END IF;
 
-  -- Also check if registration number is already assigned in profiles
+  -- 2. Check if registration number is already assigned in profiles
   IF EXISTS (SELECT 1 FROM public.profiles WHERE upper(trim(registration_number)) = v_clean_reg) THEN
     RETURN jsonb_build_object(
       'success', false,
@@ -109,95 +244,21 @@ BEGIN
     );
   END IF;
 
-  -- Case B1: Check if an active (pending or approved) application exists for this email
-  SELECT * INTO v_active_reg
-  FROM public.registrations
-  WHERE normalized_email = v_clean_email
-    AND status IN ('pending', 'approved')
-  ORDER BY created_at DESC
-  LIMIT 1;
-
-  IF v_active_reg.id IS NOT NULL THEN
-    v_raw_token := encode(gen_random_bytes(32), 'hex');
-    v_token_hash := encode(digest(v_raw_token, 'sha256'), 'hex');
-
-    UPDATE public.registrations
-    SET access_token_hash = v_token_hash,
-        updated_at = now()
-    WHERE id = v_active_reg.id;
-
-    RETURN jsonb_build_object(
-      'success', true,
-      'code', 'EXISTING_APPLICATION',
-      'message', 'A request with this email has already been submitted.',
-      'status', v_active_reg.status,
-      'token', v_raw_token,
-      'registration', jsonb_build_object(
-        'id', v_active_reg.id,
-        'full_name', v_active_reg.full_name,
-        'email', v_active_reg.email,
-        'registration_number', v_active_reg.registration_number,
-        'status', v_active_reg.status,
-        'created_at', v_active_reg.created_at,
-        'reviewed_at', v_active_reg.reviewed_at,
-        'rejection_reason', v_active_reg.rejection_reason
-      )
-    );
-  END IF;
-
-  -- Case B2: Check if active application exists for this registration number under another email
-  SELECT * INTO v_active_reg_by_no
-  FROM public.registrations
-  WHERE normalized_reg_no = v_clean_reg
-    AND status IN ('pending', 'approved')
-  ORDER BY created_at DESC
-  LIMIT 1;
-
-  IF v_active_reg_by_no.id IS NOT NULL THEN
+  -- 3. Check if active application exists for this registration number under ANOTHER email
+  IF EXISTS (
+    SELECT 1 FROM public.registrations
+    WHERE normalized_reg_no = v_clean_reg
+      AND normalized_email != v_clean_email
+      AND status IN ('pending', 'approved')
+  ) THEN
     RETURN jsonb_build_object(
       'success', false,
       'code', 'DUPLICATE_REG_NO',
-      'message', 'An application has already been submitted for this registration number.'
+      'message', 'An application has already been submitted for this registration number under another email.'
     );
   END IF;
 
-  -- Case B3: Check if a prior rejected application exists for this email
-  SELECT * INTO v_rejected_reg
-  FROM public.registrations
-  WHERE normalized_email = v_clean_email
-    AND status = 'rejected'
-  ORDER BY created_at DESC
-  LIMIT 1;
-
-  IF v_rejected_reg.id IS NOT NULL THEN
-    v_raw_token := encode(gen_random_bytes(32), 'hex');
-    v_token_hash := encode(digest(v_raw_token, 'sha256'), 'hex');
-
-    UPDATE public.registrations
-    SET access_token_hash = v_token_hash,
-        updated_at = now()
-    WHERE id = v_rejected_reg.id;
-
-    RETURN jsonb_build_object(
-      'success', true,
-      'code', 'EXISTING_APPLICATION',
-      'message', 'A request with this email has already been submitted.',
-      'status', 'rejected',
-      'token', v_raw_token,
-      'registration', jsonb_build_object(
-        'id', v_rejected_reg.id,
-        'full_name', v_rejected_reg.full_name,
-        'email', v_rejected_reg.email,
-        'registration_number', v_rejected_reg.registration_number,
-        'status', 'rejected',
-        'created_at', v_rejected_reg.created_at,
-        'reviewed_at', v_rejected_reg.reviewed_at,
-        'rejection_reason', v_rejected_reg.rejection_reason
-      )
-    );
-  END IF;
-
-  -- Case C: Validate Server-Side Email OTP Verification Proof
+  -- 4. Validate Server-Side Email OTP Verification Proof
   IF p_verification_token IS NULL OR trim(p_verification_token) = '' THEN
     RETURN jsonb_build_object(
       'success', false,
@@ -231,7 +292,7 @@ BEGIN
       consumed_at = now()
   WHERE id = v_challenge.id;
 
-  -- Case D: Automatically create student user account in auth.users & public.profiles
+  -- 5. Automatically create student user account in auth.users & public.profiles
   -- Initial temporary password is the student's registration number (must be >= 6 chars)
   IF length(v_clean_reg) < 6 THEN
     RETURN jsonb_build_object(
@@ -268,26 +329,30 @@ BEGIN
   v_raw_token := encode(gen_random_bytes(32), 'hex');
   v_token_hash := encode(digest(v_raw_token, 'sha256'), 'hex');
 
-  -- If prior rejected record existed for this email, update it in-place to approved
-  IF v_rejected_reg.id IS NOT NULL THEN
+  -- 6. Check if an existing registration record already exists for this email
+  SELECT id INTO v_existing_reg_id
+  FROM public.registrations
+  WHERE normalized_email = v_clean_email
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF v_existing_reg_id IS NOT NULL THEN
     UPDATE public.registrations
     SET full_name = v_clean_name,
         email = trim(p_email),
-        normalized_email = v_clean_email,
         registration_number = v_clean_reg,
         normalized_reg_no = v_clean_reg,
         status = 'approved',
         access_token_hash = v_token_hash,
         reviewed_at = now(),
         reviewed_by = NULL,
-        rejection_reason = 'Auto-approved on resubmission via verified SRM email OTP',
+        rejection_reason = 'Auto-approved via verified SRM email OTP',
         welcome_email_status = 'not_sent',
         updated_at = now()
-    WHERE id = v_rejected_reg.id;
+    WHERE id = v_existing_reg_id;
 
-    v_new_id := v_rejected_reg.id;
+    v_new_id := v_existing_reg_id;
   ELSE
-    -- Insert new registration record directly with status 'approved'
     INSERT INTO public.registrations (
       full_name,
       email,
