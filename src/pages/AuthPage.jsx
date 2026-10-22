@@ -117,7 +117,7 @@ export default function AuthPage({
     const openTimer = setTimeout(() => {
       setOtpSent(true);
       setOtpSending(false);
-    }, 1200);
+    }, 3500);
 
     try {
       const { data, error } = await supabase.functions.invoke("registration-email-otp", {
