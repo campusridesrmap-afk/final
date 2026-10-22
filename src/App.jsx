@@ -9,7 +9,6 @@ import FindRide from "./pages/FindRide";
 import OfferRide from "./pages/OfferRide";
 import MyTrips from "./pages/MyTrips";
 import AuthPage from "./pages/AuthPage";
-import AdminRegistrations from "./pages/AdminRegistrations";
 import RideActionConfirmModal from "./components/RideActionConfirmModal";
 import {
   getInitialAuthAndProfile,
@@ -18,8 +17,6 @@ import {
   mergeProfileWithCache,
   clearActiveUserSession,
   setActiveUserId,
-  cacheAdminStatus,
-  clearCachedAdminStatus,
 } from "./lib/profileCache";
 import {
   getCachedPublicRides,
@@ -62,8 +59,6 @@ export default function App() {
   const {
     initialSession,
     initialProfile,
-    initialIsAdmin = false,
-    initialPendingCount = 0,
   } = getInitialAuthAndProfile();
 
   const [session, setSession] = useState(initialSession);
@@ -71,7 +66,7 @@ export default function App() {
   const [page, setPage] = useState(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").trim().toLowerCase();
-      const validPages = ["find", "dashboard", "offer", "trips", "auth", "registrations"];
+      const validPages = ["find", "dashboard", "offer", "trips", "auth"];
       if (validPages.includes(hash)) {
         return hash;
       }
@@ -84,9 +79,6 @@ export default function App() {
     }
     return "find";
   });
-
-  const [isAdmin, setIsAdmin] = useState(initialIsAdmin);
-  const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(initialPendingCount);
 
   const [profile, setProfile] = useState(initialProfile);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -170,48 +162,6 @@ export default function App() {
   const lastCloseExpiredRpcTimeRef = useRef(0);
   const rpcSchemaErrorLoggedRef = useRef(false);
 
-  // Check administrator authorization securely from Supabase
-  const checkAdminStatus = useCallback(async (userId) => {
-    if (!userId) {
-      setIsAdmin(false);
-      setPendingRegistrationsCount(0);
-      return false;
-    }
-    try {
-      const { data: adminData, error: adminErr } = await supabase.rpc("is_app_admin");
-      if (!adminErr && adminData === true) {
-        setIsAdmin(true);
-        // Load pending registrations count for badge
-        let pendingCount = 0;
-        const { data: pendingData } = await supabase.rpc("admin_get_registrations", {
-          p_status_filter: "pending",
-        });
-        if (Array.isArray(pendingData)) {
-          pendingCount = pendingData.length;
-          setPendingRegistrationsCount(pendingCount);
-        }
-        cacheAdminStatus(userId, true, pendingCount);
-        return true;
-      } else {
-        setIsAdmin(false);
-        setPendingRegistrationsCount(0);
-        cacheAdminStatus(userId, false, 0);
-        return false;
-      }
-    } catch {
-      setIsAdmin(false);
-      setPendingRegistrationsCount(0);
-      cacheAdminStatus(userId, false, 0);
-      return false;
-    }
-  }, []);
-
-  const handleRefreshAdminBadge = useCallback(() => {
-    if (activeUserIdRef.current) {
-      checkAdminStatus(activeUserIdRef.current);
-    }
-  }, [checkAdminStatus]);
-
   // Synchronize active session and hydrate user state once per unique auth change
   const applySession = useCallback((nextSession) => {
     const nextUserId = nextSession?.user?.id ?? null;
@@ -225,7 +175,6 @@ export default function App() {
       setMyRides([]);
       setMyBookings([]);
       setIncomingBookings([]);
-      checkAdminStatus(null);
       const guestExpired = getCachedExpiredTrips(null);
       const guestActive = getCachedPublicRides();
       const map = new Map();
@@ -238,7 +187,6 @@ export default function App() {
     } else {
       setActiveUserId(nextUserId);
       setSession(nextSession);
-      checkAdminStatus(nextUserId);
 
       // Account isolation: Restore only this user's cached profile, bookings, and trips
       const nextCached = getCachedUserProfile(nextUserId);
@@ -258,7 +206,7 @@ export default function App() {
       });
       setRides(Array.from(map.values()));
     }
-  }, [checkAdminStatus]);
+  }, []);
 
   const lastProcessedTokenRef = useRef(initialSession?.access_token ?? null);
   const authInitializedRef = useRef(false);
@@ -304,35 +252,7 @@ export default function App() {
     };
   }, [applySession]);
 
-  // Handle service worker push notification clicks and hash navigation to the admin registrations screen
-  useEffect(() => {
-    function handleServiceWorkerMessage(event) {
-      if (event.data?.type === "NAVIGATE" && event.data?.page === "registrations") {
-        if (isAdmin) {
-          setPage("registrations");
-        }
-      }
-    }
 
-    function handleHashChange() {
-      const hash = window.location.hash.replace("#", "").trim().toLowerCase();
-      if (hash === "registrations" && isAdmin) {
-        setPage("registrations");
-      }
-    }
-
-    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
-    }
-    window.addEventListener("hashchange", handleHashChange);
-
-    return () => {
-      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-        navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
-      }
-      window.removeEventListener("hashchange", handleHashChange);
-    };
-  }, [isAdmin]);
 
   // Load user profile details in the background from Supabase
   const loadProfile = useCallback(async (userId) => {
@@ -1246,9 +1166,6 @@ export default function App() {
       } catch {}
 
       setPage("find");
-      setIsAdmin(false);
-      setPendingRegistrationsCount(0);
-      clearCachedAdminStatus(user?.id);
       setNotice("You have successfully signed out.");
       // Reload public active rides so guest dashboard remains populated
       await loadRides();
@@ -1928,7 +1845,7 @@ export default function App() {
 
     const targetPage = nextPage === "dashboard" ? "find" : nextPage;
 
-    if (targetPage === "registrations" && !isAdmin) {
+    if (targetPage === "registrations") {
       setPage("find");
       return;
     }
@@ -2004,8 +1921,6 @@ export default function App() {
         onOpenProfile={() => setShowProfileModal(true)}
         isProfileOpen={showProfileModal}
         pendingRequestsCount={pendingIncomingCount}
-        isAdmin={isAdmin}
-        pendingRegistrationsCount={pendingRegistrationsCount}
       />
 
       <main className="main-content">
@@ -2093,11 +2008,7 @@ export default function App() {
           />
         )}
 
-        {page === "registrations" && isAdmin && (
-          <AdminRegistrations
-            onRefreshHeaderBadge={handleRefreshAdminBadge}
-          />
-        )}
+
         </>
         )}
 

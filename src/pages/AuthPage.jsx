@@ -58,7 +58,145 @@ export default function AuthPage({
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [justResubmitted, setJustResubmitted] = useState(false);
 
+  // OTP Verification state for student registration
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [verificationToken, setVerificationToken] = useState("");
+  const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpNotice, setOtpNotice] = useState("");
+  const [otpError, setOtpError] = useState("");
+
   const hasLoadedSavedTokenRef = useRef(false);
+
+  // OTP Cooldown countdown timer
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  function handleEmailChange(e) {
+    const newEmail = e.target.value;
+    setRegEmail(newEmail);
+    // Invalidate verification immediately if the email is modified after verification
+    if (otpVerified && newEmail.trim().toLowerCase() !== verifiedEmail) {
+      setOtpVerified(false);
+      setVerificationToken("");
+      setVerifiedEmail("");
+      setOtpSent(false);
+      setOtpCode("");
+      setOtpNotice("");
+      setOtpError("");
+    }
+  }
+
+  async function handleSendOtp() {
+    const cleanEmail = regEmail.trim().toLowerCase();
+    setOtpError("");
+    setOtpNotice("");
+
+    if (!cleanEmail) {
+      setOtpError("Please enter your SRM university email address.");
+      return;
+    }
+    if (!cleanEmail.endsWith("@srmap.edu.in")) {
+      setOtpError("Only official SRM University-AP email addresses (@srmap.edu.in) are accepted.");
+      return;
+    }
+    if (otpCooldown > 0) return;
+
+    setOtpSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("registration-email-otp", {
+        body: {
+          action: "send_otp",
+          email: cleanEmail,
+        },
+      });
+
+      if (error) {
+        let msg = error.message;
+        try {
+          if (error.context && typeof error.context.json === "function") {
+            const errBody = await error.context.json();
+            if (errBody?.error) msg = errBody.error;
+          }
+        } catch (_) {}
+        throw new Error(msg || "Failed to contact verification service.");
+      }
+      if (!data?.success) {
+        throw new Error(data?.error || "Could not send verification code.");
+      }
+
+      setOtpSent(true);
+      setOtpCooldown(data.cooldownSeconds || 60);
+      setOtpNotice("Verification code sent to " + cleanEmail + ". Please check your inbox.");
+      setOtpCode("");
+    } catch (err) {
+      console.error("Send OTP error:", err);
+      setOtpError(err.message || "Failed to send verification code. Please try again.");
+    } finally {
+      setOtpSending(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    const cleanEmail = regEmail.trim().toLowerCase();
+    const cleanOtp = otpCode.trim();
+    setOtpError("");
+    setOtpNotice("");
+
+    if (!cleanOtp) {
+      setOtpError("Please enter the 6-digit code sent to your email.");
+      return;
+    }
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      setOtpError("The verification code must be exactly 6 digits.");
+      return;
+    }
+
+    setOtpVerifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("registration-email-otp", {
+        body: {
+          action: "verify_otp",
+          email: cleanEmail,
+          otp: cleanOtp,
+        },
+      });
+
+      if (error) {
+        let msg = error.message;
+        try {
+          if (error.context && typeof error.context.json === "function") {
+            const errBody = await error.context.json();
+            if (errBody?.error) msg = errBody.error;
+          }
+        } catch (_) {}
+        throw new Error(msg || "Verification request failed.");
+      }
+      if (!data?.success || !data?.verificationToken) {
+        throw new Error(data?.error || "Invalid verification code.");
+      }
+
+      setOtpVerified(true);
+      setVerificationToken(data.verificationToken);
+      setVerifiedEmail(cleanEmail);
+      setOtpNotice("SRM email verified successfully!");
+      setOtpError("");
+    } catch (err) {
+      console.error("Verify OTP error:", err);
+      setOtpError(err.message || "Verification failed. Please check the code and try again.");
+    } finally {
+      setOtpVerifying(false);
+    }
+  }
 
   // Fetch status from Supabase using secure access token
   const fetchApplicationStatus = useCallback(async (tokenToFetch, isRefresh = false) => {
@@ -150,6 +288,14 @@ export default function AuthPage({
       return;
     }
 
+    // Require email OTP verification for new registrations
+    if (!isResubmitMode) {
+      if (!otpVerified || !verificationToken || cleanEmail !== verifiedEmail) {
+        setRegError("Please verify your SRM email address with an OTP before registering.");
+        return;
+      }
+    }
+
     setRegBusy(true);
 
     try {
@@ -163,11 +309,12 @@ export default function AuthPage({
           p_registration_number: cleanReg,
         });
       } else {
-        // Standard registration submission: exact 3-argument signature deployed in PostgreSQL
+        // Standard registration submission: requires verified single-use proof
         rpcResult = await supabase.rpc("submit_student_registration", {
           p_full_name: cleanName,
           p_email: cleanEmail,
           p_registration_number: cleanReg,
+          p_verification_token: verificationToken,
         });
       }
 
@@ -220,17 +367,9 @@ export default function AuthPage({
           await fetchApplicationStatus(token);
         }
 
-        // Asynchronously trigger server-side admin phone push notification (non-blocking)
-        const resubId = data.registration?.id || data.id;
-        if (resubId) {
-          supabase.functions
-            .invoke("notify-admins-new-registration", {
-              body: { registrationId: resubId },
-            })
-            .catch((_err) => {});
-        }
-      } else if (data.code === "CREATED" || data.success) {
-        // Case D — New application created
+
+      } else if (data.code === "AUTO_APPROVED" || data.code === "CREATED" || data.success) {
+        // Case D — Application automatically approved via verified email OTP
         const token = data.token;
         if (token) {
           try {
@@ -243,16 +382,6 @@ export default function AuthPage({
           setJustResubmitted(false);
           setIsResubmitMode(false);
           await fetchApplicationStatus(token);
-        }
-
-        // Asynchronously trigger server-side admin phone push notification (non-blocking)
-        const newRegId = data.registration?.id || data.id;
-        if (newRegId) {
-          supabase.functions
-            .invoke("notify-admins-new-registration", {
-              body: { registrationId: newRegId },
-            })
-            .catch((_err) => {});
         }
       } else {
         setRegError(data.message || "Registration submission failed.");
@@ -279,6 +408,13 @@ export default function AuthPage({
     setExistingAppNotice("");
     setExistingAccountNotice("");
     setIsResubmitMode(true);
+    setOtpSent(false);
+    setOtpVerified(false);
+    setVerificationToken("");
+    setVerifiedEmail("");
+    setOtpCode("");
+    setOtpNotice("");
+    setOtpError("");
   }
 
   function formatDate(isoStr) {
@@ -535,11 +671,32 @@ export default function AuthPage({
                       <CheckCircle2 size={24} />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <h3 style={{ margin: 0, fontSize: "17px", color: "#166534" }}>
-                        Application Approved!
+                      <h3 style={{ margin: "0 0 6px", fontSize: "18px", color: "#166534", fontWeight: 700 }}>
+                        Application Approved & Account Active!
                       </h3>
-                      <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#15803d", lineHeight: 1.4 }}>
-                        Your CampusRide account has been approved. Please check your registered SRM email address for your login details and instructions to get started.
+                      <p style={{ margin: "0 0 12px", fontSize: "14px", color: "#15803d", lineHeight: 1.5 }}>
+                        Your SRM email has been verified and your account is now active.
+                      </p>
+
+                      <div
+                        style={{
+                          background: "#ffffff",
+                          border: "1px solid #86efac",
+                          borderRadius: "10px",
+                          padding: "14px 16px",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        <p style={{ margin: "0 0 8px", fontSize: "14px", fontWeight: 700, color: "#14532d" }}>
+                          🔐 Your temporary password is your SRM Registration Number.
+                        </p>
+                        <p style={{ margin: 0, fontSize: "13px", color: "#166534", lineHeight: 1.5 }}>
+                          Please use your registered SRM email and temporary password to log in to CampusRide. You'll be required to change your password on your first login.
+                        </p>
+                      </div>
+
+                      <p style={{ margin: "10px 0 0", fontSize: "13px", color: "#15803d", fontWeight: 600 }}>
+                        💙 Welcome to CampusRide — Your campus. Your ride. Your community.
                       </p>
                     </div>
                   </div>
@@ -584,52 +741,53 @@ export default function AuthPage({
                   </div>
                 )}
 
-                {/* Application Details Summary */}
-                <div
-                  className="app-details-box"
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    padding: "14px 16px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                    <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600, color: "var(--muted)" }}>
-                      Application Details
-                    </span>
-                    <span className={`status-tag status-tag-${activeRegistration.status}`}>
-                      {activeRegistration.status === "pending" && "Verification Pending"}
-                      {activeRegistration.status === "approved" && "Approved"}
-                      {activeRegistration.status === "rejected" && "Rejected"}
-                    </span>
+                {/* Application Details Summary (Hidden on registration success screen) */}
+                {activeRegistration.status !== "approved" && (
+                  <div
+                    className="app-details-box"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "10px",
+                      padding: "14px 16px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                      <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600, color: "var(--muted)" }}>
+                        Application Details
+                      </span>
+                      <span className={`status-tag status-tag-${activeRegistration.status}`}>
+                        {activeRegistration.status === "pending" && "Verification Pending"}
+                        {activeRegistration.status === "rejected" && "Rejected"}
+                      </span>
+                    </div>
+
+                    <div className="app-details-grid">
+                      <div className="app-details-cell">
+                        <span className="app-details-label">Full Name</span>
+                        <strong className="app-details-val">{activeRegistration.full_name}</strong>
+                      </div>
+
+                      <div className="app-details-cell">
+                        <span className="app-details-label">SRM Email</span>
+                        <strong className="app-details-val" style={{ wordBreak: "break-all" }}>{activeRegistration.email}</strong>
+                      </div>
+
+                      <div className="app-details-cell">
+                        <span className="app-details-label">Registration Number</span>
+                        <strong className="app-details-val">
+                          {activeRegistration.masked_registration_number || activeRegistration.registration_number}
+                        </strong>
+                      </div>
+
+                      <div className="app-details-cell">
+                        <span className="app-details-label">Submitted On</span>
+                        <span className="app-details-val">{formatDate(activeRegistration.created_at)}</span>
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="app-details-grid">
-                    <div className="app-details-cell">
-                      <span className="app-details-label">Full Name</span>
-                      <strong className="app-details-val">{activeRegistration.full_name}</strong>
-                    </div>
-
-                    <div className="app-details-cell">
-                      <span className="app-details-label">SRM Email</span>
-                      <strong className="app-details-val" style={{ wordBreak: "break-all" }}>{activeRegistration.email}</strong>
-                    </div>
-
-                    <div className="app-details-cell">
-                      <span className="app-details-label">Registration Number</span>
-                      <strong className="app-details-val">
-                        {activeRegistration.masked_registration_number || activeRegistration.registration_number}
-                      </strong>
-                    </div>
-
-                    <div className="app-details-cell">
-                      <span className="app-details-label">Submitted On</span>
-                      <span className="app-details-val">{formatDate(activeRegistration.created_at)}</span>
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 {/* Status Action Buttons */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -743,20 +901,137 @@ export default function AuthPage({
                   </div>
 
                   <div className="field">
-                    <label className="field-label">
-                      <Mail size={15} /> SRM University Email Address
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      placeholder=""
-                      disabled={regBusy}
-                    />
-                    <small style={{ color: "var(--muted)", fontSize: "11px", marginTop: "3px", display: "block" }}>
-                      Only official SRM community email addresses are accepted
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <label className="field-label" style={{ marginBottom: 0 }}>
+                        <Mail size={15} /> SRM University Email Address
+                      </label>
+                      {!isResubmitMode && otpVerified && regEmail.trim().toLowerCase() === verifiedEmail && (
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: "#166534", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                          <CheckCircle2 size={13} /> Email Verified
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="email"
+                        required
+                        value={regEmail}
+                        onChange={handleEmailChange}
+                        placeholder="your_name@srmap.edu.in"
+                        disabled={regBusy || (otpVerified && !isResubmitMode)}
+                        style={{ flex: 1 }}
+                      />
+                      {!isResubmitMode && (
+                        otpVerified ? (
+                          <button
+                            type="button"
+                            className="button button-outline"
+                            onClick={() => {
+                              setOtpVerified(false);
+                              setVerificationToken("");
+                              setVerifiedEmail("");
+                            }}
+                            style={{ padding: "0 12px", fontSize: "12px", whiteSpace: "nowrap" }}
+                            title="Edit email address"
+                          >
+                            Change
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button button-outline"
+                            onClick={handleSendOtp}
+                            disabled={otpSending || otpCooldown > 0 || regBusy || !regEmail.trim().toLowerCase().endsWith("@srmap.edu.in")}
+                            style={{ padding: "0 14px", fontSize: "12px", whiteSpace: "nowrap", minWidth: "90px" }}
+                          >
+                            {otpSending
+                              ? "Sending..."
+                              : otpCooldown > 0
+                              ? `Resend (${otpCooldown}s)`
+                              : otpSent
+                              ? "Resend Code"
+                              : "Send Code"}
+                          </button>
+                        )
+                      )}
+                    </div>
+                    <small style={{ color: "var(--muted)", fontSize: "11px", marginTop: "4px", display: "block" }}>
+                      Only official SRM community email addresses (@srmap.edu.in) are accepted
                     </small>
+
+                    {/* Error message before OTP input box is shown */}
+                    {!isResubmitMode && !otpSent && otpError && (
+                      <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                        <span>{otpError}</span>
+                      </div>
+                    )}
+
+                    {/* OTP verification input section */}
+                    {!isResubmitMode && otpSent && !otpVerified && (
+                      <div
+                        className="otp-verification-box"
+                        style={{
+                          marginTop: "12px",
+                          padding: "14px",
+                          background: "var(--surface)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "10px",
+                          animation: "fadeIn 0.2s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)", margin: 0 }}>
+                            Enter 6-Digit Verification Code
+                          </label>
+                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>
+                            Valid for 5 mins
+                          </span>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                            placeholder="123456"
+                            style={{
+                              flex: 1,
+                              letterSpacing: "4px",
+                              fontWeight: "bold",
+                              fontSize: "16px",
+                              textAlign: "center",
+                            }}
+                            disabled={otpVerifying || regBusy}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            className="button button-primary"
+                            onClick={handleVerifyOtp}
+                            disabled={otpVerifying || otpCode.trim().length !== 6 || regBusy}
+                            style={{ padding: "0 16px", fontSize: "13px", whiteSpace: "nowrap" }}
+                          >
+                            {otpVerifying ? "Verifying..." : "Verify Code"}
+                          </button>
+                        </div>
+
+                        {otpNotice && (
+                          <div style={{ fontSize: "12px", color: "#166534", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
+                            <span>{otpNotice}</span>
+                          </div>
+                        )}
+                        {otpError && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                            <span>{otpError}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="field">
@@ -776,9 +1051,15 @@ export default function AuthPage({
                   <button
                     type="submit"
                     className="button button-primary button-full auth-submit-btn"
-                    disabled={regBusy}
+                    disabled={regBusy || (!isResubmitMode && !otpVerified)}
                   >
-                    {regBusy ? "Submitting..." : isResubmitMode ? "Resubmit Application" : "Register for an Account"}
+                    {regBusy
+                      ? "Submitting..."
+                      : isResubmitMode
+                      ? "Resubmit Application"
+                      : !otpVerified
+                      ? "Verify Email to Register"
+                      : "Register for an Account"}
                   </button>
 
                   <div className="auth-register-prompt">
