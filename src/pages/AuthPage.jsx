@@ -112,6 +112,13 @@ export default function AuthPage({
     if (otpCooldown > 0) return;
 
     setOtpSending(true);
+
+    // After ~1.2s, open the clean OTP box!
+    const openTimer = setTimeout(() => {
+      setOtpSent(true);
+      setOtpSending(false);
+    }, 1200);
+
     try {
       const { data, error } = await supabase.functions.invoke("registration-email-otp", {
         body: {
@@ -134,14 +141,12 @@ export default function AuthPage({
         throw new Error(data?.error || "Could not send verification code.");
       }
 
-      setOtpSent(true);
       setOtpCooldown(data.cooldownSeconds || 60);
-      setOtpNotice("Verification code sent to " + cleanEmail + ". Please check your inbox.");
       setOtpCode("");
     } catch (err) {
+      clearTimeout(openTimer);
       console.error("Send OTP error:", err);
       setOtpError(err.message || "Failed to send verification code. Please try again.");
-    } finally {
       setOtpSending(false);
     }
   }
@@ -895,7 +900,7 @@ export default function AuthPage({
                       required
                       value={regFullName}
                       onChange={(e) => setRegFullName(e.target.value)}
-                      placeholder="student name"
+                      placeholder="Student Name"
                       disabled={regBusy}
                     />
                   </div>
@@ -968,7 +973,7 @@ export default function AuthPage({
                       </div>
                     )}
 
-                    {/* OTP verification input section */}
+                    {/* OTP verification input section (Clean with zero backend sending status) */}
                     {!isResubmitMode && otpSent && !otpVerified && (
                       <div
                         className="otp-verification-box"
@@ -1018,12 +1023,6 @@ export default function AuthPage({
                           </button>
                         </div>
 
-                        {otpNotice && (
-                          <div style={{ fontSize: "12px", color: "#166534", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
-                            <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
-                            <span>{otpNotice}</span>
-                          </div>
-                        )}
                         {otpError && (
                           <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
                             <AlertCircle size={13} style={{ flexShrink: 0 }} />
