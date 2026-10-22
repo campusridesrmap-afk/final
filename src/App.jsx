@@ -317,9 +317,13 @@ export default function App() {
   useEffect(() => {
     if (user?.id) {
       loadProfile(user.id).then((prof) => {
-        if (activeUserIdRef.current === user.id && prof?.must_change_password) {
-          setPasswordSetupMode("first_login");
-          setShowPasswordSetupModal(true);
+        if (activeUserIdRef.current === user.id) {
+          if (prof?.must_change_password) {
+            setPasswordSetupMode("first_login");
+            setShowPasswordSetupModal(true);
+          } else if (!prof?.profile_completed || !prof?.mobile_number || !prof.mobile_number.trim()) {
+            setShowProfileModal(true);
+          }
         }
       });
     } else {
@@ -1184,6 +1188,13 @@ export default function App() {
       return;
     }
 
+    // Strictly enforce complete profile and mobile number before allowing ride creation
+    if (!profile?.profile_completed || !profile?.mobile_number || !profile.mobile_number.trim()) {
+      setShowProfileModal(true);
+      setErrorMessage("Please complete your profile and provide your mobile number before offering a ride.");
+      return;
+    }
+
     setBusy(true);
     setNotice("");
     setErrorMessage("");
@@ -1229,6 +1240,13 @@ export default function App() {
       setPendingBooking({ ride, seatsRequested, matchDetails });
       setPage("auth");
       setNotice(`Please log in with your SRM-AP student account to request a seat on ${ride.from_location} → ${ride.to_location}.`);
+      return;
+    }
+
+    // Strictly enforce complete profile and mobile number before allowing ride booking
+    if (!profile?.profile_completed || !profile?.mobile_number || !profile.mobile_number.trim()) {
+      setShowProfileModal(true);
+      setErrorMessage("Please complete your profile and provide your mobile number before booking a ride.");
       return;
     }
 
@@ -2043,7 +2061,12 @@ export default function App() {
           user={user}
           initialProfile={profile}
           isModal={true}
-          onClose={() => setShowProfileModal(false)}
+          onClose={() => {
+            // Cannot close modal until profile and mobile number are completed
+            if (profile?.profile_completed && profile?.mobile_number && profile.mobile_number.trim()) {
+              setShowProfileModal(false);
+            }
+          }}
           onSave={(updatedProfile) => {
             if (user?.id) {
               cacheUserProfile(user.id, updatedProfile);
