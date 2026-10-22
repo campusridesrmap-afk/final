@@ -74,6 +74,10 @@ export default function ProfileOnboarding({
     }
   }
 
+  const isProfileComplete = Boolean(
+    initialProfile?.profile_completed && initialProfile?.mobile_number && initialProfile?.mobile_number.trim()
+  );
+
   const content = (
     <div className="profile-onboarding-card">
       <div className="onboarding-header">
@@ -81,13 +85,14 @@ export default function ProfileOnboarding({
           <ShieldCheck size={28} />
         </div>
         <div>
-          <h3>Complete Your Campus Profile</h3>
+          <h3>{isProfileComplete ? "Your Campus Profile" : "Complete Your Profile (Mandatory)"}</h3>
           <p>
-            Connect with verified SRM-AP students. Your phone number is only shared
-            after a ride request is confirmed.
+            {isProfileComplete
+              ? "Connect with verified SRM-AP students. Your phone number is only shared after a ride request is confirmed."
+              : "A verified mobile number is required before you can offer rides or book seats on CampusRide."}
           </p>
         </div>
-        {isModal && onClose && (
+        {isModal && onClose && isProfileComplete && (
           <button
             type="button"
             className="modal-close-btn"
@@ -129,7 +134,7 @@ export default function ProfileOnboarding({
 
         <div className="field">
           <label className="field-label">
-            <Phone size={15} /> Mobile / WhatsApp Number
+            <Phone size={15} /> Mobile / WhatsApp Number <span style={{ color: "#dc2626" }}>*</span>
           </label>
           <input
             type="tel"
@@ -137,9 +142,10 @@ export default function ProfileOnboarding({
             value={mobileNumber}
             onChange={(e) => setMobileNumber(e.target.value)}
             placeholder="e.g. 9876543210"
+            autoFocus={!isProfileComplete}
           />
           <small className="field-help-text">
-            For ride coordination & pickup calls.
+            Required for co-riders to contact and coordinate pickups.
           </small>
         </div>
 
@@ -175,7 +181,20 @@ export default function ProfileOnboarding({
 
   return (
     <>
-      {isModal ? <div className="modal-overlay">{content}</div> : content}
+      {isModal ? (
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && isProfileComplete && onClose) {
+              onClose();
+            }
+          }}
+        >
+          {content}
+        </div>
+      ) : (
+        content
+      )}
       {showChangePassword && (
         <PasswordSetupModal
           mode="change_password"
