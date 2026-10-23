@@ -1435,6 +1435,16 @@ export default function App() {
           return next;
         });
 
+        // Trigger email notification to the driver (silent background call - strictly Full Name only, no phone or reg no)
+        supabase.functions.invoke("registration-email-otp", {
+          body: {
+            action: "notify_ride_requested",
+            ride_id: ride.id,
+            passenger_name: profile?.full_name || user?.user_metadata?.full_name || "SRM Student",
+            seats_requested: seatsRequested,
+          },
+        }).catch((e) => console.error("Driver notification error:", e));
+
         setNotice(`Seat request sent to the vehicle sharer for ${pickupLoc} → ${dropoffLoc}.`);
         await loadMyTrips(true);
       }
@@ -1490,6 +1500,17 @@ export default function App() {
             }
           }
         }
+      }
+
+      // If accepted, trigger email notification to the passenger (silent background call - strictly Full Name only, no phone or reg no)
+      if (isAccept) {
+        supabase.functions.invoke("registration-email-otp", {
+          body: {
+            action: "notify_ride_accepted",
+            booking_id: bookingId,
+            driver_name: profile?.full_name || user?.user_metadata?.full_name || "Your Driver",
+          },
+        }).catch((e) => console.error("Passenger notification error:", e));
       }
 
       setNotice(`Booking request ${isAccept ? "accepted" : "rejected"}. Contact details shared!`);
