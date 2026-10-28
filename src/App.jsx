@@ -10,6 +10,7 @@ import OfferRide from "./pages/OfferRide";
 import MyTrips from "./pages/MyTrips";
 import AuthPage from "./pages/AuthPage";
 import RideActionConfirmModal from "./components/RideActionConfirmModal";
+import InstallAppBanner from "./components/InstallAppBanner";
 import {
   getInitialAuthAndProfile,
   getCachedUserProfile,
@@ -2130,6 +2131,9 @@ export default function App() {
         busy={lifecycleBusy}
         error={lifecycleModal.error}
       />
+
+      {/* Smart Mobile Install Banner (Add to Home Screen) */}
+      <InstallAppBanner />
     </div>
   );
 }
