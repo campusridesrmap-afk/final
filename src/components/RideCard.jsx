@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Car, Bike, Calendar, Clock, MapPin, CheckCircle, ArrowRight, User, ShieldCheck, Check, X } from "lucide-react";
+import { Car, Bike, Calendar, Clock, MapPin, CheckCircle, ArrowRight, User, ShieldCheck, Check, X, Share2 } from "lucide-react";
 import { formatDistance } from "../lib/routeMatching";
 
 export function formatDate(value) {
@@ -37,6 +37,7 @@ export default function RideCard({
   matchDetails = null, // from findMatchingStops
   onCompleteRide = null,
   onCancelSharing = null,
+  isExpired = false,
 }) {
   const [requestedSeats, setRequestedSeats] = useState(1);
   const seatsAvailable = Number(ride.available_seats) || 0;
@@ -47,9 +48,41 @@ export default function RideCard({
 
   const departureTimestamp = new Date(ride.departure_at).getTime();
   const isDeparturePassed = !isNaN(departureTimestamp) && departureTimestamp <= Date.now();
+  const isExpiredTrip = isExpired || isDeparturePassed || ride.status === "completed" || ride.status === "cancelled";
 
   const effectiveStatus = bookingStatus || (isRequested ? "pending" : null);
   const hasActiveRequest = effectiveStatus === "pending" || effectiveStatus === "accepted";
+
+  function handleShareWhatsApp(e) {
+    e.stopPropagation();
+
+    const fromLoc = ride.from_location || "SRM Campus";
+    const toLoc = ride.to_location || "Destination";
+    const depTimeStr = formatDate(ride.departure_at);
+    const vehicleStr = ride.vehicle_type || "Vehicle";
+    const seatsStr = `${seatsAvailable} ${seatsAvailable === 1 ? "seat" : "seats"} left`;
+    
+    // Resolve price from cost_per_seat or price_per_seat safely
+    const rawCost = ride.cost_per_seat != null ? ride.cost_per_seat : ride.price_per_seat;
+    const numCost = Number(rawCost);
+    const costStr = isNaN(numCost) || numCost === 0 ? "Free" : `₹${numCost} / seat`;
+
+    const shareText = `🚗 *CAMPUSRIDE — SRM-AP UPCOMING RIDE*
+
+📍 *Route:* ${fromLoc} -> ${toLoc}
+🗓 *Departure:* ${depTimeStr}
+🚘 *Vehicle:* ${vehicleStr}
+💺 *Available Seats:* ${seatsStr}
+💰 *Contribution:* ${costStr}
+
+👉 *Book your seat here:*
+https://campusridesrmap.vercel.app/`;
+
+    // Modern WhatsApp Universal URL with full UTF-8 encoding
+    const encodedText = encodeURIComponent(shareText);
+    const whatsappUrl = `https://wa.me/?text=${encodedText}`;
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <article className="ride-card">
@@ -72,23 +105,38 @@ export default function RideCard({
           <span>{ride.provider_name || "SRM Student"}</span>
         </div>
 
-        {ride.status === "completed" ? (
-          <div className="seat-count-badge status-completed">
-            <strong>Ride Ended</strong>
-          </div>
-        ) : ride.status === "cancelled" ? (
-          <div className="seat-count-badge status-cancelled">
-            <strong>Cancelled</strong>
-          </div>
-        ) : isDeparturePassed ? (
-          <div className="seat-count-badge status-booking-closed">
-            <strong>Booking Closed</strong>
-          </div>
-        ) : (
-          <div className={`seat-count-badge ${seatsAvailable <= 1 ? "seat-low" : ""}`}>
-            <strong>{seatsAvailable}</strong> {seatsAvailable === 1 ? "seat left" : "seats left"}
-          </div>
-        )}
+        <div className="card-top-right">
+          {!isExpiredTrip && (
+            <button
+              type="button"
+              className="whatsapp-share-btn"
+              onClick={handleShareWhatsApp}
+              title="Share this ride on WhatsApp"
+              aria-label="Share ride on WhatsApp"
+            >
+              <Share2 size={13} />
+              <span>Share</span>
+            </button>
+          )}
+
+          {ride.status === "completed" ? (
+            <div className="seat-count-badge status-completed">
+              <strong>Ride Ended</strong>
+            </div>
+          ) : ride.status === "cancelled" ? (
+            <div className="seat-count-badge status-cancelled">
+              <strong>Cancelled</strong>
+            </div>
+          ) : isDeparturePassed ? (
+            <div className="seat-count-badge status-booking-closed">
+              <strong>Booking Closed</strong>
+            </div>
+          ) : (
+            <div className={`seat-count-badge ${seatsAvailable <= 1 ? "seat-low" : ""}`}>
+              <strong>{seatsAvailable}</strong> {seatsAvailable === 1 ? "seat left" : "seats left"}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Partial Route Matching Banner if passenger searched */}
