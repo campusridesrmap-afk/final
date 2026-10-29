@@ -451,21 +451,25 @@ export default function FindRide({
                   <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--muted)" }}>No expired trips found.</p>
                 </div>
               ) : (
-                <div className="ride-grid">
-                  {expiredRides.map((ride) => (
-                    <RideCard
-                      key={ride.id}
-                      ride={ride}
-                      onBook={onBookRide}
-                      isRequested={requestedRideIds?.has(ride.id)}
-                      bookingStatus={userBookings?.[ride.id]?.status || null}
-                      isOwnRide={ride.provider_id === user?.id}
-                      user={user}
-                      authLoading={authLoading}
-                      busy={busy}
-                      matchDetails={ride.matchDetails}
-                    />
-                  ))}
+                <div className="expired-rides-scroll-container">
+                  <div className="expired-rides-row">
+                    {expiredRides.map((ride) => (
+                      <div key={ride.id} className="expired-ride-card-wrapper">
+                        <RideCard
+                          ride={ride}
+                          onBook={onBookRide}
+                          isRequested={requestedRideIds?.has(ride.id)}
+                          bookingStatus={userBookings?.[ride.id]?.status || null}
+                          isOwnRide={ride.provider_id === user?.id}
+                          user={user}
+                          authLoading={authLoading}
+                          busy={busy}
+                          matchDetails={ride.matchDetails}
+                          isExpired={true}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
