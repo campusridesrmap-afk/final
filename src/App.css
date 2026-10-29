@@ -767,6 +767,96 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  gap: 12px;
+}
+
+.results-header-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.results-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.results-alert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+}
+
+.results-alert-btn:hover:not(:disabled) {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.results-alert-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.results-alert-btn.active {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.results-alert-btn.active:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.results-alert-cancel-hint {
+  font-size: 15px;
+  line-height: 1;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.results-alert-btn.active:hover .results-alert-cancel-hint {
+  opacity: 1;
+}
+
+.results-alert-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  margin-bottom: 14px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.results-alert-notice-close {
+  background: none;
+  border: none;
+  color: #1e40af;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
 }
 
 .results-count {
@@ -2759,9 +2849,10 @@ h1, h2, h3, h4 {
   }
 
   .results-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
 
   /* Ride Card */
@@ -4023,4 +4114,8 @@ h1, h2, h3, h4 {
     width: 290px;
   }
 }
+
+
+
+
 
