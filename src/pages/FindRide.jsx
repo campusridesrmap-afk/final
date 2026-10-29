@@ -1,17 +1,21 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import LocationAutocomplete from "../components/LocationAutocomplete";
 import RideCard from "../components/RideCard";
 import { findMatchingStops } from "../lib/routeMatching";
+import { supabase } from "../lib/supabase";
 import {
   Clock,
   RefreshCw,
   Sparkles,
+  Bell,
+  Check,
 } from "lucide-react";
 
 export default function FindRide({
   rides,
   onBookRide,
   user,
+  profile,
   authLoading = false,
   requestedRideIds,
   userBookings = {},
@@ -21,6 +25,7 @@ export default function FindRide({
   errorMessage = "",
   onRefresh,
   onOfferRideClick,
+  onNavigateAuth,
 }) {
   const [pickupText, setPickupText] = useState("");
   const [dropoffText, setDropoffText] = useState("");
@@ -30,6 +35,168 @@ export default function FindRide({
 
   const [vehicleFilter, setVehicleFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("");
+
+  // Ride Alerts State with local cache for zero-flicker page reloads
+  const [activeAlert, setActiveAlert] = useState(() => {
+    if (user?.id) {
+      try {
+        const cached = localStorage.getItem(`campusride_active_alert_${user.id}`);
+        return cached ? JSON.parse(cached) : null;
+      } catch (_) {}
+    }
+    return null;
+  });
+  const [alertSubscribed, setAlertSubscribed] = useState(() => Boolean(activeAlert));
+  const [alertLoading, setAlertLoading] = useState(false);
+  const [alertNotice, setAlertNotice] = useState("");
+
+  // Auto-dismiss alert notification toast
+  useEffect(() => {
+    if (!alertNotice) return;
+    const timer = setTimeout(() => {
+      setAlertNotice("");
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [alertNotice]);
+
+  // Check if current user already has an active alert
+  useEffect(() => {
+    if (!user) {
+      setActiveAlert(null);
+      setAlertSubscribed(false);
+      return;
+    }
+
+    // Try immediate hydration from localStorage if not already in state
+    try {
+      const cached = localStorage.getItem(`campusride_active_alert_${user.id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setActiveAlert(parsed);
+        setAlertSubscribed(true);
+      }
+    } catch (_) {}
+
+    let isCancelled = false;
+    async function checkExistingAlert() {
+      try {
+        const { data, error } = await supabase
+          .from("ride_alerts")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (isCancelled || error) return;
+
+        if (data && data.length > 0) {
+          setActiveAlert(data[0]);
+          setAlertSubscribed(true);
+          try {
+            localStorage.setItem(`campusride_active_alert_${user.id}`, JSON.stringify(data[0]));
+          } catch (_) {}
+        } else {
+          setActiveAlert(null);
+          setAlertSubscribed(false);
+          try {
+            localStorage.removeItem(`campusride_active_alert_${user.id}`);
+          } catch (_) {}
+        }
+      } catch (_) {
+        // Table may not exist yet or network error
+      }
+    }
+
+    checkExistingAlert();
+    return () => {
+      isCancelled = true;
+    };
+  }, [user]);
+
+  async function handleCreateAlert() {
+    if (!user) {
+      if (onNavigateAuth) onNavigateAuth();
+      return;
+    }
+
+    const fromLoc = pickupText.trim() || "SRM Campus";
+    const toLoc = dropoffText.trim() || "All Routes";
+    const studentName = profile?.full_name || user.user_metadata?.full_name || "SRM Student";
+
+    setAlertLoading(true);
+    setAlertNotice("");
+
+    try {
+      const { data, error } = await supabase
+        .from("ride_alerts")
+        .insert({
+          user_id: user.id,
+          user_email: user.email,
+          user_name: studentName,
+          from_location: fromLoc,
+          to_location: toLoc,
+          date_filter: "",
+          status: "active",
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // If table doesn't exist yet, give friendly notice
+        if (error.code === "PGRST205" || error.message?.includes("does not exist")) {
+          setAlertNotice("Please run the ride_alerts database migration in Supabase SQL editor.");
+          return;
+        }
+        throw error;
+      }
+
+      setActiveAlert(data);
+      setAlertSubscribed(true);
+      try {
+        localStorage.setItem(`campusride_active_alert_${user.id}`, JSON.stringify(data));
+      } catch (_) {}
+      setAlertNotice("Alert activated! You will receive an email whenever any new ride is offered.");
+    } catch (err) {
+      console.error("Failed to create alert:", err);
+      setAlertNotice("Could not set alert. Please try again.");
+    } finally {
+      setAlertLoading(false);
+    }
+  }
+
+  async function handleCancelAlert() {
+    if (!user || !activeAlert?.id) {
+      setActiveAlert(null);
+      setAlertSubscribed(false);
+      return;
+    }
+
+    setAlertLoading(true);
+    setAlertNotice("");
+
+    try {
+      const { error } = await supabase
+        .from("ride_alerts")
+        .update({ status: "cancelled" })
+        .eq("id", activeAlert.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      setActiveAlert(null);
+      setAlertSubscribed(false);
+      try {
+        localStorage.removeItem(`campusride_active_alert_${user.id}`);
+      } catch (_) {}
+      setAlertNotice("Ride alerts turned off. You won't receive emails for new rides.");
+    } catch (err) {
+      console.error("Failed to cancel alert:", err);
+      setAlertNotice("Could not cancel alert. Please try again.");
+    } finally {
+      setAlertLoading(false);
+    }
+  }
 
   function handleSelectPickup(place) {
     setPickupText(place.name || place.label || "");
@@ -274,15 +441,58 @@ export default function FindRide({
 
         {/* Results Stream */}
         <div className="results-header">
-          <span className="results-count">
-            Showing <strong>{activeUpcomingRides.length}</strong> active ride{activeUpcomingRides.length === 1 ? "" : "s"}
-          </span>
-          {pickupCoords && dropoffCoords && (
-            <span className="route-matching-active-badge">
-              <Sparkles size={13} /> Multi-stop matching enabled
+          <div className="results-header-left">
+            <span className="results-count">
+              Showing <strong>{activeUpcomingRides.length}</strong> active ride{activeUpcomingRides.length === 1 ? "" : "s"}
             </span>
-          )}
+            {pickupCoords && dropoffCoords && (
+              <span className="route-matching-active-badge">
+                <Sparkles size={13} /> Multi-stop matching enabled
+              </span>
+            )}
+          </div>
+
+          <div className="results-header-right">
+            {alertSubscribed ? (
+              <button
+                type="button"
+                className="results-alert-btn active"
+                onClick={handleCancelAlert}
+                disabled={alertLoading}
+                title="Alert active. Click to cancel."
+              >
+                <Check size={13} />
+                <span>Alert Active</span>
+                <span className="results-alert-cancel-hint">&times;</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="results-alert-btn"
+                onClick={handleCreateAlert}
+                disabled={alertLoading}
+                title="Get notified via email when someone offers a ride"
+              >
+                <Bell size={13} />
+                <span>{alertLoading ? "Setting..." : "Notify Me"}</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {alertNotice && (
+          <div className="results-alert-notice">
+            <span>{alertNotice}</span>
+            <button
+              type="button"
+              className="results-alert-notice-close"
+              onClick={() => setAlertNotice("")}
+              aria-label="Close"
+            >
+              &times;
+            </button>
+          </div>
+        )}
 
         {dataLoading && rides.length === 0 ? (
           <div className="empty-state">
@@ -342,14 +552,15 @@ export default function FindRide({
                 <div className="empty-icon">🚗</div>
                 <h3>No active rides found</h3>
                 <p>
-                  Nobody is offering an upcoming ride for this route or date yet. Be the first to share a trip!
+                  Nobody is offering an upcoming ride for this route or date yet.
                 </p>
                 <button
                   type="button"
                   className="button button-primary"
                   onClick={onOfferRideClick}
+                  style={{ marginTop: "16px" }}
                 >
-                  + Offer a Ride Now
+                  + Offer a Ride
                 </button>
               </div>
             ) : (
