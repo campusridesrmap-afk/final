@@ -87,22 +87,24 @@ https://campusridesrmap.vercel.app/`;
   return (
     <article className="ride-card">
       <div className="ride-card-top">
-        <div className="vehicle-pill">
-          {ride.vehicle_type === "Bike" ? (
-            <Bike size={14} />
-          ) : ride.vehicle_type === "Auto" ? (
-            <span style={{ fontSize: "13px", lineHeight: 1 }} role="img" aria-label="Auto">
-              🛺
-            </span>
-          ) : (
-            <Car size={14} />
-          )}
-          <span>{ride.vehicle_type}</span>
-        </div>
+        <div className="card-top-left">
+          <div className="vehicle-pill">
+            {ride.vehicle_type === "Bike" ? (
+              <Bike size={14} />
+            ) : ride.vehicle_type === "Auto" ? (
+              <span style={{ fontSize: "13px", lineHeight: 1 }} role="img" aria-label="Auto">
+                🛺
+              </span>
+            ) : (
+              <Car size={14} />
+            )}
+            <span>{ride.vehicle_type}</span>
+          </div>
 
-        <div className="driver-badge">
-          <User size={13} />
-          <span>{ride.provider_name || "SRM Student"}</span>
+          <div className="driver-badge" title={ride.provider_name || "SRM Student"}>
+            <User size={13} />
+            <span className="driver-name-text">{ride.provider_name || "SRM Student"}</span>
+          </div>
         </div>
 
         <div className="card-top-right">
