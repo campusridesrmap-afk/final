@@ -1219,8 +1219,24 @@ export default function App() {
         status: "open",
       };
 
-      const { error } = await supabase.from("rides").insert(insertData);
+      const { data: newInsertedRide, error } = await supabase
+        .from("rides")
+        .insert(insertData)
+        .select("id")
+        .maybeSingle();
+
       if (error) throw error;
+
+      // Trigger automatic background notification to students subscribed to ride alerts on this route
+      if (newInsertedRide?.id) {
+        supabase.functions.invoke("registration-email-otp", {
+          body: {
+            action: "notify_matching_ride_alerts",
+            ride_id: newInsertedRide.id,
+            driver_name: profile?.full_name || user?.user_metadata?.full_name || "SRM Student",
+          },
+        }).catch((e) => console.error("Ride alerts trigger error:", e));
+      }
 
       setNotice("Ride published successfully! Students along your path can now request seats.");
       setPage("find");
@@ -1998,6 +2014,7 @@ export default function App() {
             rides={rides}
             onBookRide={handleBookRide}
             user={user}
+            profile={profile}
             authLoading={authLoading}
             requestedRideIds={requestedRideIds}
             userBookings={userBookings}
@@ -2007,6 +2024,7 @@ export default function App() {
             errorMessage={errorMessage}
             onRefresh={handleRefresh}
             onOfferRideClick={() => handleNavigate("offer")}
+            onNavigateAuth={() => handleNavigate("auth")}
           />
         )}
 
