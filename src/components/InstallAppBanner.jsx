@@ -7,7 +7,7 @@ export default function InstallAppBanner() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // 1. If already installed in standalone mode, don't show
+    // 1. If currently opened INSIDE the installed app (standalone app window), don't show inside the app
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       window.navigator.standalone === true ||
@@ -15,13 +15,7 @@ export default function InstallAppBanner() {
 
     if (isStandalone) return;
 
-    // 2. Check if user dismissed recently (allow manual re-check if needed)
-    const dismissedUntil = localStorage.getItem("campusride_install_dismissed_until");
-    if (dismissedUntil && Number(dismissedUntil) > Date.now()) {
-      return;
-    }
-
-    // Always show banner after initial mount so user sees the install option immediately!
+    // Always show banner on every reload/visit in Chrome!
     setIsVisible(true);
 
     // 3. Listen for browser's native beforeinstallprompt
@@ -70,11 +64,8 @@ export default function InstallAppBanner() {
   };
 
   const handleDismiss = () => {
+    // Only hides for current session/page until next reload
     setIsVisible(false);
-    localStorage.setItem(
-      "campusride_install_dismissed_until",
-      String(Date.now() + 24 * 60 * 60 * 1000)
-    );
   };
 
   if (!isVisible) return null;
