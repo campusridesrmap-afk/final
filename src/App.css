@@ -995,14 +995,23 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 14px;
+}
+
+.card-top-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .card-top-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .whatsapp-share-btn {
@@ -1018,6 +1027,7 @@ h1, h2, h3, h4 {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .whatsapp-share-btn:hover {
@@ -1042,6 +1052,7 @@ h1, h2, h3, h4 {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .driver-badge {
@@ -1051,6 +1062,15 @@ h1, h2, h3, h4 {
   font-size: 12px;
   color: var(--ink-secondary);
   font-weight: 600;
+  min-width: 0;
+  max-width: 140px;
+}
+
+.driver-name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
 }
 
 .seat-count-badge {
