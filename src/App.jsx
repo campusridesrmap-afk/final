@@ -82,7 +82,21 @@ export default function App() {
   });
 
   const [profile, setProfile] = useState(initialProfile);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(() => {
+    // If user has active session but incomplete profile (missing mobile or gender), force onboarding open immediately
+    if (initialSession?.user?.id && initialProfile) {
+      if (
+        !initialProfile.profile_completed ||
+        !initialProfile.mobile_number ||
+        !initialProfile.mobile_number.trim() ||
+        !initialProfile.gender ||
+        !initialProfile.gender.trim()
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
   const [showPasswordSetupModal, setShowPasswordSetupModal] = useState(false);
   const [passwordSetupMode, setPasswordSetupMode] = useState("first_login");
 
@@ -270,11 +284,22 @@ export default function App() {
 
     const task = (async () => {
       try {
-        const { data, error } = await supabase
+        let profRes = await supabase
           .from("profiles")
-          .select("id, full_name, registration_number, mobile_number, profile_completed, must_change_password")
+          .select("id, full_name, registration_number, mobile_number, gender, profile_completed, must_change_password")
           .eq("id", targetUserId)
           .maybeSingle();
+
+        // If gender column is not yet in profiles, fallback to query without gender
+        if (profRes.error && (profRes.error.code === "42703" || profRes.error.message?.includes("gender"))) {
+          profRes = await supabase
+            .from("profiles")
+            .select("id, full_name, registration_number, mobile_number, profile_completed, must_change_password")
+            .eq("id", targetUserId)
+            .maybeSingle();
+        }
+
+        const { data, error } = profRes;
 
         // Guard: Discard stale response if user logged out or switched accounts during fetch
         if (activeUserIdRef.current !== targetUserId) {
@@ -322,7 +347,13 @@ export default function App() {
           if (prof?.must_change_password) {
             setPasswordSetupMode("first_login");
             setShowPasswordSetupModal(true);
-          } else if (!prof?.profile_completed || !prof?.mobile_number || !prof.mobile_number.trim()) {
+          } else if (
+            !prof?.profile_completed ||
+            !prof?.mobile_number ||
+            !prof.mobile_number.trim() ||
+            !prof?.gender ||
+            !prof.gender.trim()
+          ) {
             setShowProfileModal(true);
           }
         }
@@ -1084,7 +1115,13 @@ export default function App() {
       if (userProf?.must_change_password) {
         setPasswordSetupMode("first_login");
         setShowPasswordSetupModal(true);
-      } else if (!userProf?.profile_completed || !userProf?.mobile_number) {
+      } else if (
+        !userProf?.profile_completed ||
+        !userProf?.mobile_number ||
+        !userProf.mobile_number.trim() ||
+        !userProf?.gender ||
+        !userProf.gender.trim()
+      ) {
         setShowProfileModal(true);
       }
     } catch (error) {
@@ -1189,10 +1226,16 @@ export default function App() {
       return;
     }
 
-    // Strictly enforce complete profile and mobile number before allowing ride creation
-    if (!profile?.profile_completed || !profile?.mobile_number || !profile.mobile_number.trim()) {
+    // Strictly enforce complete profile, mobile number, and gender before allowing ride creation
+    if (
+      !profile?.profile_completed ||
+      !profile?.mobile_number ||
+      !profile.mobile_number.trim() ||
+      !profile?.gender ||
+      !profile.gender.trim()
+    ) {
       setShowProfileModal(true);
-      setErrorMessage("Please complete your profile and provide your mobile number before offering a ride.");
+      setErrorMessage("Please complete your profile including gender and mobile number before offering a ride.");
       return;
     }
 
@@ -1260,10 +1303,16 @@ export default function App() {
       return;
     }
 
-    // Strictly enforce complete profile and mobile number before allowing ride booking
-    if (!profile?.profile_completed || !profile?.mobile_number || !profile.mobile_number.trim()) {
+    // Strictly enforce complete profile, mobile number, and gender before allowing ride booking
+    if (
+      !profile?.profile_completed ||
+      !profile?.mobile_number ||
+      !profile.mobile_number.trim() ||
+      !profile?.gender ||
+      !profile.gender.trim()
+    ) {
       setShowProfileModal(true);
-      setErrorMessage("Please complete your profile and provide your mobile number before booking a ride.");
+      setErrorMessage("Please complete your profile including gender and mobile number before booking a ride.");
       return;
     }
 
@@ -2102,8 +2151,14 @@ export default function App() {
           initialProfile={profile}
           isModal={true}
           onClose={() => {
-            // Cannot close modal until profile and mobile number are completed
-            if (profile?.profile_completed && profile?.mobile_number && profile.mobile_number.trim()) {
+            // Cannot close modal until all mandatory details (including gender) are completed
+            if (
+              profile?.profile_completed &&
+              profile?.mobile_number &&
+              profile.mobile_number.trim() &&
+              profile?.gender &&
+              profile.gender.trim()
+            ) {
               setShowProfileModal(false);
             }
           }}
@@ -2126,7 +2181,13 @@ export default function App() {
             setShowPasswordSetupModal(false);
             const updatedProf = await loadProfile(user?.id);
             setNotice("Password configured successfully!");
-            if (!updatedProf?.profile_completed || !updatedProf?.mobile_number) {
+            if (
+              !updatedProf?.profile_completed ||
+              !updatedProf?.mobile_number ||
+              !updatedProf.mobile_number.trim() ||
+              !updatedProf?.gender ||
+              !updatedProf.gender.trim()
+            ) {
               setShowProfileModal(true);
             }
           }}
