@@ -39,6 +39,7 @@ export function sanitizePublicRide(rawRide) {
     provider_name: typeof rawRide.provider_name === "string" && rawRide.provider_name.trim()
       ? rawRide.provider_name.trim()
       : "SRM Student",
+    provider_gender: rawRide.provider_gender ? String(rawRide.provider_gender).trim() : null,
     from_location: fromLocation,
     to_location: toLocation,
     departure_at: rawRide.departure_at || new Date().toISOString(),
