@@ -6,6 +6,15 @@ export default function ContactShare({ profile, role = "Vehicle Sharer", isShari
   const phone = profile.mobile_number || profile.phone;
   const regNo = profile.registration_number;
   const cleanPhone = phone ? phone.replace(/\D/g, "") : "";
+  const gender = (profile.gender || "").trim().toLowerCase();
+  const genderPenClass =
+    gender === "male"
+      ? "pen-male"
+      : gender === "female"
+      ? "pen-female"
+      : gender === "others"
+      ? "pen-others"
+      : "";
 
   return (
     <div className="contact-share-card">
@@ -16,7 +25,7 @@ export default function ContactShare({ profile, role = "Vehicle Sharer", isShari
 
       <div className="contact-details">
         <div className="contact-person">
-          <User size={14} />
+          <User size={14} className={`driver-pen-icon ${genderPenClass}`} />
           <strong>{profile.full_name || "SRM Student"}</strong>
           {regNo && <small className="contact-reg">({regNo})</small>}
         </div>
