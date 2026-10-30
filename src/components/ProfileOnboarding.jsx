@@ -193,11 +193,9 @@ export default function ProfileOnboarding({
           <ShieldCheck size={28} />
         </div>
         <div>
-          <h3>{isProfileComplete ? "Your Campus Profile" : "Complete Your Profile"}</h3>
+          <h3>Your Campus Profile</h3>
           <p>
-            {isProfileComplete
-              ? "Connect with verified SRM-AP students. Your phone number is only shared after a ride request is confirmed."
-              : "All fields are mandatory. Please provide your Full Name, Gender, and Mobile Number before continuing on CampusRide."}
+            Connect with verified SRM-AP students. Your phone number is only shared after a ride request is confirmed.
           </p>
         </div>
         {isModal && onClose && isProfileComplete && (
