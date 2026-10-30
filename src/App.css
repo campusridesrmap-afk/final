@@ -1163,6 +1163,25 @@ h1, h2, h3, h4 {
   display: inline-block;
 }
 
+/* Gender-specific pen ink colors for User profile icon */
+.driver-pen-icon {
+  color: var(--ink-secondary); /* Default pen: #334155 (Dark Charcoal Slate) */
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.driver-pen-icon.pen-male {
+  color: #2563eb !important; /* Blue pen for Male */
+}
+
+.driver-pen-icon.pen-female {
+  color: #db2777 !important; /* Pink pen for Female */
+}
+
+.driver-pen-icon.pen-others {
+  color: var(--ink-secondary) !important; /* Current Charcoal Slate pen for Others */
+}
+
 .seat-count-badge {
   display: inline-flex;
   align-items: center;
