@@ -11,6 +11,31 @@
 export const PROFILE_CACHE_PREFIX = "campusride_profile_";
 export const ACTIVE_USER_KEY = "campusride_active_user_id";
 
+// One-time cache migration: clear any stale test gender values so users get prompted with clean blank "Select Gender"
+if (typeof window !== "undefined") {
+  try {
+    const MIGRATION_KEY = "campusride_gender_clean_v1";
+    if (!localStorage.getItem(MIGRATION_KEY)) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(PROFILE_CACHE_PREFIX)) {
+          const item = localStorage.getItem(k);
+          if (item) {
+            try {
+              const p = JSON.parse(item);
+              if (p) {
+                p.gender = "";
+                localStorage.setItem(k, JSON.stringify(p));
+              }
+            } catch {}
+          }
+        }
+      }
+      localStorage.setItem(MIGRATION_KEY, "true");
+    }
+  } catch {}
+}
+
 /**
  * Validates whether profile data contains genuine student identity information.
  * Disallows temporary defaults such as "SRM Student", email addresses, or empty strings.
@@ -76,12 +101,15 @@ export function cacheUserProfile(userId, profileData) {
   }
 
   try {
+    const rawGender = (profileData.gender || "").trim();
+    const cleanGender = ["Male", "Female", "Others"].includes(rawGender) ? rawGender : "";
+
     const cleanProfile = {
       id: userId,
       full_name: profileData.full_name.trim(),
       registration_number: (profileData.registration_number || "").trim().toUpperCase(),
       mobile_number: (profileData.mobile_number || "").trim(),
-      gender: (profileData.gender || "").trim(),
+      gender: cleanGender,
       profile_completed: Boolean(profileData.profile_completed),
       must_change_password: Boolean(profileData.must_change_password),
       cached_at: new Date().toISOString(),
@@ -215,11 +243,27 @@ export function mergeProfileWithCache(userId, freshData) {
   const existingCache = getCachedUserProfile(userId);
 
   if (freshData && isValidProfileData(freshData)) {
-    // Fresh network response is valid: safely merge with existing cache to preserve gender
+    // Database freshData is the authoritative source for gender
+    let resolvedGender = "";
+    if (
+      freshData.gender &&
+      typeof freshData.gender === "string" &&
+      ["Male", "Female", "Others"].includes(freshData.gender.trim())
+    ) {
+      resolvedGender = freshData.gender.trim();
+    } else if (
+      freshData.gender === undefined &&
+      existingCache?.gender &&
+      ["Male", "Female", "Others"].includes(existingCache.gender.trim())
+    ) {
+      // Fallback only if gender was not queried in the select statement
+      resolvedGender = existingCache.gender.trim();
+    }
+
     const mergedFresh = {
       ...(existingCache || {}),
       ...freshData,
-      gender: (freshData.gender && freshData.gender.trim()) || existingCache?.gender || "",
+      gender: resolvedGender,
     };
     cacheUserProfile(userId, mergedFresh);
     return mergedFresh;
@@ -229,12 +273,18 @@ export function mergeProfileWithCache(userId, freshData) {
   if (existingCache) {
     // Retain existing valid cached details! Do not clobber with fallback or empty data
     if (freshData) {
-      // Safely merge flags like must_change_password or profile_completed
+      let resolvedGender = existingCache.gender || "";
+      if (freshData.gender !== undefined) {
+        resolvedGender =
+          freshData.gender &&
+          typeof freshData.gender === "string" &&
+          ["Male", "Female", "Others"].includes(freshData.gender.trim())
+            ? freshData.gender.trim()
+            : "";
+      }
       const merged = {
         ...existingCache,
-        ...(freshData.gender !== undefined
-          ? { gender: freshData.gender }
-          : {}),
+        gender: resolvedGender,
         ...(freshData.must_change_password !== undefined
           ? { must_change_password: freshData.must_change_password }
           : {}),
