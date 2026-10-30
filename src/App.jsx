@@ -434,7 +434,7 @@ export default function App() {
               const chunk = providerIds.slice(i, i + 50);
               const { data: profs } = await supabase
                 .from("profiles")
-                .select("id, full_name")
+                .select("id, full_name, gender")
                 .in("id", chunk);
 
               (profs || []).forEach((p) => {
@@ -449,11 +449,17 @@ export default function App() {
         // Check request sequencing again after the secondary profile fetch
         if (requestId !== ridesRequestIdRef.current) return;
 
-        const freshRides = rawRides.map((r) => ({
-          ...r,
-          provider_name: profilesMap[r.provider_id]?.full_name || "SRM Student",
-          provider_profile: profilesMap[r.provider_id] || null,
-        }));
+        const freshRides = rawRides.map((r) => {
+          const prof = profilesMap[r.provider_id];
+          const isOwn = user?.id && r.provider_id === user.id;
+          const pGender = prof?.gender || (isOwn ? profile?.gender : null) || r.provider_gender || null;
+          return {
+            ...r,
+            provider_name: prof?.full_name || (isOwn ? profile?.full_name : null) || "SRM Student",
+            provider_gender: pGender,
+            provider_profile: prof || (isOwn ? profile : null),
+          };
+        });
 
         // Atomically update state and localStorage caches
         setRides(freshRides);
@@ -670,7 +676,7 @@ export default function App() {
           const chunk = activeAcceptedDriverIds.slice(i, i + 50);
           const { data: driverProfs } = await supabase
             .from("profiles")
-            .select("id, full_name, mobile_number, registration_number")
+            .select("id, full_name, mobile_number, registration_number, gender")
             .in("id", chunk);
 
           (driverProfs || []).forEach((p) => {
@@ -684,11 +690,11 @@ export default function App() {
           const chunk = otherDriverIds.slice(i, i + 50);
           const { data: otherProfs } = await supabase
             .from("profiles")
-            .select("id, full_name")
+            .select("id, full_name, gender")
             .in("id", chunk);
 
           (otherProfs || []).forEach((p) => {
-            driverProfilesMap[p.id] = { id: p.id, full_name: p.full_name, mobile_number: null, registration_number: null };
+            driverProfilesMap[p.id] = { id: p.id, full_name: p.full_name, gender: p.gender, mobile_number: null, registration_number: null };
           });
         }
       }
@@ -696,10 +702,12 @@ export default function App() {
       const processedMyBookings = myBookingsList.map((b) => {
         const ride = b.rides || b.ride;
         const providerId = ride?.provider_id || b.provider_id;
+        const prof = driverProfilesMap[providerId];
         return {
           ...b,
-          driver_name: driverProfilesMap[providerId]?.full_name || b.driver_name || "Vehicle Sharer",
-          driver_profile: driverProfilesMap[providerId] || b.driver_profile || null,
+          driver_name: prof?.full_name || b.driver_name || "Vehicle Sharer",
+          driver_gender: prof?.gender || b.driver_gender || null,
+          driver_profile: prof || b.driver_profile || null,
         };
       });
 
@@ -821,7 +829,14 @@ export default function App() {
       }
 
       // Atomically commit all fresh authoritative data together
-      setMyRides(myRidesList);
+      const enrichedMyRides = myRidesList.map((r) => ({
+        ...r,
+        provider_name: r.provider_name || profile?.full_name || "SRM Student",
+        provider_gender: r.provider_gender || profile?.gender || null,
+        provider_profile: r.provider_profile || profile || null,
+      }));
+
+      setMyRides(enrichedMyRides);
       setMyBookings(processedMyBookings);
       setUserBookings(bookingsMap);
       setIncomingBookings(processedIncoming);
@@ -829,7 +844,7 @@ export default function App() {
 
       cacheUserBookings(targetUserId, bookingsMap);
       cacheUserTrips(targetUserId, {
-        myRides: myRidesList,
+        myRides: enrichedMyRides,
         incomingBookings: processedIncoming,
         myBookings: processedMyBookings,
       });
