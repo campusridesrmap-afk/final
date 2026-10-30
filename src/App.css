@@ -2211,6 +2211,136 @@ h1, h2, h3, h4 {
 }
 
 /* ==========================================================================
+   Gender Selector (Profile Onboarding)
+   ========================================================================== */
+.gender-select-trigger {
+  width: 100%;
+  height: 44px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 14.5px;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.gender-select-trigger:hover {
+  border-color: var(--line-strong);
+  background: #fafafa;
+}
+
+.gender-select-trigger.open,
+.gender-select-trigger:focus-visible {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+  background: var(--surface);
+}
+
+.gender-placeholder {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.gender-selected-text {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+/* Text colors only - No background fills */
+.gender-selected-text.male,
+.gender-dropdown-option.gender-male .gender-opt-label {
+  color: #2563eb !important;
+}
+
+.gender-selected-text.female,
+.gender-dropdown-option.gender-female .gender-opt-label {
+  color: #db2777 !important;
+}
+
+.gender-selected-text.others,
+.gender-dropdown-option.gender-others .gender-opt-label {
+  color: #64748b !important;
+}
+
+.gender-chevron {
+  color: var(--muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.gender-chevron.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.gender-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: #ffffff;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.gender-dropdown-option {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14.5px;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.gender-dropdown-option:hover {
+  background: #f8fafc;
+}
+
+.gender-dropdown-option.active {
+  background: #f1f5f9;
+}
+
+.gender-opt-label {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.gender-dropdown-option.gender-male .gender-check {
+  color: #2563eb;
+}
+
+.gender-dropdown-option.gender-female .gender-check {
+  color: #db2777;
+}
+
+.gender-dropdown-option.gender-others .gender-check {
+  color: #64748b;
+}
+
+/* ==========================================================================
    Empty States & Loading
    ========================================================================== */
 .empty-state {
