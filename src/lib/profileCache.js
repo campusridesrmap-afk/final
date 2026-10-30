@@ -81,6 +81,7 @@ export function cacheUserProfile(userId, profileData) {
       full_name: profileData.full_name.trim(),
       registration_number: (profileData.registration_number || "").trim().toUpperCase(),
       mobile_number: (profileData.mobile_number || "").trim(),
+      gender: (profileData.gender || "").trim(),
       profile_completed: Boolean(profileData.profile_completed),
       must_change_password: Boolean(profileData.must_change_password),
       cached_at: new Date().toISOString(),
@@ -214,9 +215,14 @@ export function mergeProfileWithCache(userId, freshData) {
   const existingCache = getCachedUserProfile(userId);
 
   if (freshData && isValidProfileData(freshData)) {
-    // Fresh network response is valid: update cache and return
-    cacheUserProfile(userId, freshData);
-    return freshData;
+    // Fresh network response is valid: safely merge with existing cache to preserve gender
+    const mergedFresh = {
+      ...(existingCache || {}),
+      ...freshData,
+      gender: (freshData.gender && freshData.gender.trim()) || existingCache?.gender || "",
+    };
+    cacheUserProfile(userId, mergedFresh);
+    return mergedFresh;
   }
 
   // Network returned empty, error, or fallback skeleton
@@ -226,6 +232,9 @@ export function mergeProfileWithCache(userId, freshData) {
       // Safely merge flags like must_change_password or profile_completed
       const merged = {
         ...existingCache,
+        ...(freshData.gender !== undefined
+          ? { gender: freshData.gender }
+          : {}),
         ...(freshData.must_change_password !== undefined
           ? { must_change_password: freshData.must_change_password }
           : {}),
