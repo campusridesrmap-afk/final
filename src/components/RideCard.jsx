@@ -53,6 +53,22 @@ export default function RideCard({
   const effectiveStatus = bookingStatus || (isRequested ? "pending" : null);
   const hasActiveRequest = effectiveStatus === "pending" || effectiveStatus === "accepted";
 
+  const driverGender = (
+    ride.provider_gender ||
+    ride.provider_profile?.gender ||
+    (isOwnRide ? user?.user_metadata?.gender : "") ||
+    ""
+  ).trim();
+
+  const genderPenClass =
+    driverGender.toLowerCase() === "male"
+      ? "pen-male"
+      : driverGender.toLowerCase() === "female"
+      ? "pen-female"
+      : driverGender.toLowerCase() === "others"
+      ? "pen-others"
+      : "";
+
   function handleShareWhatsApp(e) {
     e.stopPropagation();
 
@@ -101,8 +117,11 @@ https://campusridesrmap.vercel.app/`;
             <span>{ride.vehicle_type}</span>
           </div>
 
-          <div className="driver-badge" title={ride.provider_name || "SRM Student"}>
-            <User size={13} />
+          <div
+            className="driver-badge"
+            title={`${ride.provider_name || "SRM Student"}${driverGender ? ` (${driverGender})` : ""}`}
+          >
+            <User size={13} className={`driver-pen-icon ${genderPenClass}`} />
             <span className="driver-name-text">{ride.provider_name || "SRM Student"}</span>
           </div>
         </div>
