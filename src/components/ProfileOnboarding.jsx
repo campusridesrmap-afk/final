@@ -24,6 +24,8 @@ const GENDER_OPTIONS = [
   },
 ];
 
+const VALID_GENDERS = ["Male", "Female", "Others"];
+
 export default function ProfileOnboarding({
   user,
   initialProfile,
@@ -35,9 +37,10 @@ export default function ProfileOnboarding({
     initialProfile?.full_name || user?.user_metadata?.full_name || ""
   );
   const [regNo, setRegNo] = useState(initialProfile?.registration_number || "");
-  const [gender, setGender] = useState(
-    initialProfile?.gender || user?.user_metadata?.gender || ""
-  );
+  const [gender, setGender] = useState(() => {
+    const candidate = initialProfile?.gender;
+    return candidate && VALID_GENDERS.includes(candidate.trim()) ? candidate.trim() : "";
+  });
   const [genderDropdownOpen, setGenderDropdownOpen] = useState(false);
   const genderDropdownRef = useRef(null);
 
@@ -71,8 +74,10 @@ export default function ProfileOnboarding({
 
   // Sync profile details if hydrated asynchronously
   useEffect(() => {
-    if (initialProfile?.gender && !gender) {
-      setGender(initialProfile.gender);
+    if (initialProfile?.gender && VALID_GENDERS.includes(initialProfile.gender.trim())) {
+      setGender(initialProfile.gender.trim());
+    } else if (!initialProfile?.gender) {
+      setGender("");
     }
     if (initialProfile?.full_name && !fullName) {
       setFullName(initialProfile.full_name);
