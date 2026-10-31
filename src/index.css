@@ -24,6 +24,17 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.dark,
+[data-theme="dark"] {
+  --ink: #f8fafc;
+  --ink-soft: #cbd5e1;
+  --muted: #94a3b8;
+  --line: #1e293b;
+  --surface: #131d36;
+  --bg: #0b1120;
+  color-scheme: dark;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
