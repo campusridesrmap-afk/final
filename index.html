@@ -18,6 +18,31 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <script>
+    (function () {
+      try {
+        var preference = localStorage.getItem("campusride_theme") || "system";
+        var isDark =
+          preference === "dark" ||
+          (preference === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        if (isDark) {
+          root.classList.add("dark");
+          root.classList.remove("light");
+          root.setAttribute("data-theme", "dark");
+          root.style.colorScheme = "dark";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", "#0b1120");
+        } else {
+          root.classList.remove("dark");
+          root.classList.add("light");
+          root.setAttribute("data-theme", "light");
+          root.style.colorScheme = "light";
+        }
+      } catch (_) {}
+    })();
+  </script>
 </head>
 
 <body>
