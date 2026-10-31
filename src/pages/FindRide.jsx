@@ -9,6 +9,7 @@ import {
   Sparkles,
   Bell,
   Check,
+  Lock,
 } from "lucide-react";
 
 export default function FindRide({
@@ -587,7 +588,10 @@ export default function FindRide({
               <div className="past-rides-header">
                 <Clock size={15} />
                 <span className="past-rides-title">Expired Trips ({expiredRides.length})</span>
-                <span className="past-rides-badge">Booking closed • Departure time passed</span>
+                <span className="past-rides-badge">
+                  <Lock size={11} />
+                  <span>Booking closed • Departure time passed</span>
+                </span>
                 {dataLoading && (
                   <span
                     className="revalidating-badge"
