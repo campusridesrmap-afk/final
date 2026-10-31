@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Car, Bike, Calendar, Clock, MapPin, CheckCircle, ArrowRight, User, ShieldCheck, Check, X, Share2 } from "lucide-react";
+import { Car, Bike, Calendar, Clock, MapPin, CheckCircle, ArrowRight, User, ShieldCheck, Check, X, Share2, Lock } from "lucide-react";
 import { formatDistance } from "../lib/routeMatching";
 
 export function formatDate(value) {
@@ -150,6 +150,7 @@ https://campusridesrmap.vercel.app/`;
             </div>
           ) : isDeparturePassed ? (
             <div className="seat-count-badge status-booking-closed">
+              <Lock size={11} />
               <strong>Booking Closed</strong>
             </div>
           ) : (
@@ -296,7 +297,8 @@ https://campusridesrmap.vercel.app/`;
             ) : isDeparturePassed ? (
               <div className="booking-closed-banner">
                 <span className="status-pill status-booking-closed">
-                  Booking Closed
+                  <Lock size={12} />
+                  <span>Booking Closed</span>
                 </span>
                 <small className="booking-closed-explanation">
                   Booking closed because the departure time has passed.
