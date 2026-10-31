@@ -1,5 +1,6 @@
 import { Search, PlusCircle, Car, User, LogOut } from "lucide-react";
 import { CAMPUS_RIDE_LOGO } from "../assets/logo";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar({
   page,
@@ -71,6 +72,7 @@ export default function Navbar({
         </nav>
 
         <div className="account-area">
+          <ThemeToggle />
           {user ? (
             <div className="user-profile-menu">
               <button
