@@ -3508,7 +3508,8 @@ h1, h2, h3, h4 {
 .past-rides-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 16px;
   color: var(--muted);
   font-size: 13px;
@@ -3518,16 +3519,19 @@ h1, h2, h3, h4 {
 .past-rides-title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-secondary);
+  color: var(--ink-secondary, var(--text-secondary));
 }
 
 .past-rides-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
-  padding: 2px 8px;
-  background: #f1f5f9;
-  color: #64748b;
+  padding: 3px 10px;
+  background: var(--surface-raised, #f1f5f9);
+  color: var(--muted, #64748b);
   border-radius: 999px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line, #e2e8f0);
 }
 
 /* ==============================================================================
@@ -4263,6 +4267,1023 @@ h1, h2, h3, h4 {
     width: 290px;
   }
 }
+
+/* ==========================================================================
+   Midnight Blue Dark Mode & Theme System
+   ========================================================================== */
+
+/* 1. Theme Variables for Midnight Blue */
+html.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* CampusRide Blue Branding (Vibrant against Midnight Navy) */
+  --blue: #3b82f6;
+  --blue-hover: #60a5fa;
+  --blue-light: rgba(59, 130, 246, 0.16);
+  --blue-soft: rgba(59, 130, 246, 0.15);
+  --blue-border: rgba(59, 130, 246, 0.35);
+
+  /* Status Colors */
+  --emerald: #10b981;
+  --emerald-light: rgba(16, 185, 129, 0.18);
+  --emerald-text: #34d399;
+
+  --amber: #f59e0b;
+  --amber-light: rgba(245, 158, 11, 0.18);
+  --amber-text: #fbbf24;
+
+  --rose: #ef4444;
+  --rose-light: rgba(239, 68, 68, 0.18);
+  --rose-text: #f87171;
+
+  /* Midnight Blue Background & Surfaces */
+  --bg: #0b1120;
+  --surface: #131d36;
+  --surface-raised: #1a2748;
+  --surface-hover: #21325c;
+
+  /* Text & Contrast */
+  --ink: #f8fafc;
+  --ink-secondary: #cbd5e1;
+  --muted: #94a3b8;
+
+  /* Borders & Dividers */
+  --line: #1e293b;
+  --line-strong: #334155;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 10px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 22px -3px rgba(0, 0, 0, 0.55), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 32px -5px rgba(0, 0, 0, 0.65), 0 8px 14px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* 2. Theme Toggle Controls — Single Light & Dark Combined Switch */
+.theme-toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 9999px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  outline: none;
+  transition: transform 0.15s ease;
+}
+
+.theme-toggle-switch:active {
+  transform: scale(0.96);
+}
+
+.theme-toggle-switch:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.theme-switch-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 58px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html.dark .theme-switch-track,
+.theme-toggle-switch.is-dark .theme-switch-track {
+  background: #0f172a;
+  border-color: #334155;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.theme-switch-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 0.22s ease, color 0.22s ease;
+}
+
+.theme-switch-side.sun-side {
+  color: #f59e0b;
+}
+
+.theme-switch-side.moon-side {
+  color: #94a3b8;
+}
+
+.theme-toggle-switch.is-light .theme-switch-side.sun-side {
+  opacity: 0;
+}
+.theme-toggle-switch.is-light .theme-switch-side.moon-side {
+  opacity: 0.65;
+}
+
+.theme-toggle-switch.is-dark .theme-switch-side.sun-side {
+  opacity: 0.55;
+  color: #64748b;
+}
+.theme-toggle-switch.is-dark .theme-switch-side.moon-side {
+  opacity: 0;
+}
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.25, 0.64, 1),
+              background-color 0.25s ease,
+              color 0.25s ease,
+              box-shadow 0.25s ease;
+  z-index: 2;
+}
+
+.theme-toggle-switch.is-dark .theme-switch-thumb {
+  transform: translateX(28px);
+  background: #1e293b;
+  color: #38bdf8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6), 0 0 10px rgba(56, 189, 248, 0.35);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.theme-switch-thumb .thumb-icon {
+  display: block;
+  transition: transform 0.25s ease;
+}
+
+.theme-toggle-switch:hover .theme-switch-thumb .thumb-icon.sun {
+  transform: rotate(25deg);
+}
+
+.theme-toggle-switch:hover .theme-switch-thumb .thumb-icon.moon {
+  transform: rotate(-15deg);
+}
+
+/* Settings Variant (In Profile Modal) */
+.theme-settings-group {
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.theme-settings-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.theme-settings-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border: 1.5px solid var(--line);
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--muted);
+  transition: all 0.18s ease;
+}
+
+.theme-settings-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.theme-settings-btn.active {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.theme-option-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-option-hint {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* 3. Midnight Blue Header & Navigation Overrides */
+html.dark .topbar {
+  background: rgba(11, 17, 32, 0.94) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+html.dark .mobile-bottom-nav {
+  background: rgba(11, 17, 32, 0.96) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+html.dark .brand-mark {
+  background-color: var(--surface);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+html.dark .nav-link {
+  color: var(--ink-secondary);
+}
+
+html.dark .nav-link:hover {
+  background: var(--surface-raised);
+  color: var(--blue);
+}
+
+html.dark .nav-link.active {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+html.dark .bottom-nav-item {
+  color: var(--muted);
+}
+
+html.dark .bottom-nav-item.active {
+  color: var(--blue);
+}
+
+html.dark .bottom-nav-item.active svg {
+  stroke: var(--blue);
+}
+
+/* 4. Midnight Blue Hero Banner */
+html.dark .hero {
+  background: linear-gradient(135deg, #091122 0%, #112044 50%, #1e3a8a 100%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.28) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .hero h1 span {
+  color: #93c5fd !important;
+}
+
+html.dark .hero .eyebrow {
+  color: #60a5fa !important;
+}
+
+html.dark .hero p {
+  color: #cbd5e1 !important;
+}
+
+html.dark .stat-pill {
+  background: rgba(11, 17, 32, 0.65) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+}
+
+html.dark .hero-circle {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.dark .float-chip {
+  background: rgba(19, 29, 54, 0.88) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+/* 5. Midnight Blue Ride Cards */
+html.dark .ride-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+}
+
+html.dark .ride-card:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+html.dark .vehicle-pill {
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  color: var(--ink-secondary);
+}
+
+html.dark .driver-badge {
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+html.dark .driver-name-text {
+  color: var(--ink);
+}
+
+html.dark .whatsapp-share-btn {
+  background: rgba(37, 211, 102, 0.14) !important;
+  color: #4ade80 !important;
+  border-color: rgba(37, 211, 102, 0.3) !important;
+}
+
+html.dark .whatsapp-share-btn:hover {
+  background: rgba(37, 211, 102, 0.24) !important;
+  border-color: rgba(37, 211, 102, 0.5) !important;
+}
+
+html.dark .match-banner {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.32) !important;
+  color: var(--ink) !important;
+}
+
+html.dark .match-tag {
+  background: var(--surface-raised) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .timeline-via-summary {
+  background: var(--surface-raised);
+  border-color: var(--line);
+}
+
+html.dark .via-tag {
+  background: var(--surface);
+  color: #93c5fd;
+  border: 1px solid var(--line);
+}
+
+html.dark .via-names {
+  color: var(--muted);
+}
+
+/* Driver icon pen colors in dark mode */
+html.dark .driver-pen-icon.pen-male {
+  color: #60a5fa !important;
+}
+html.dark .driver-pen-icon.pen-female {
+  color: #f472b6 !important;
+}
+html.dark .driver-pen-icon.pen-others {
+  color: #94a3b8 !important;
+}
+
+/* 6. Status Badges & Indicators (Clear & High Contrast in Dark Mode) */
+html.dark .seat-count-badge {
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  border: 1px solid var(--line-strong);
+}
+
+html.dark .seat-count-badge.seat-low {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+html.dark .status-completed,
+html.dark .seat-count-badge.status-completed {
+  background: rgba(139, 92, 246, 0.18) !important;
+  color: #c4b5fd !important;
+  border: 1px solid rgba(139, 92, 246, 0.35) !important;
+}
+
+html.dark .status-cancelled,
+html.dark .status-rejected,
+html.dark .seat-count-badge.status-cancelled,
+html.dark .status-tag-rejected,
+html.dark .status-btn-rejected {
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+
+html.dark .status-booking-closed,
+html.dark .seat-count-badge.status-booking-closed,
+html.dark .status-expired,
+html.dark .past-rides-badge {
+  background: rgba(100, 116, 139, 0.18) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(100, 116, 139, 0.35) !important;
+}
+
+html.dark .status-pending,
+html.dark .status-tag-pending,
+html.dark .status-btn-pending {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+
+html.dark .status-accepted,
+html.dark .status-approved,
+html.dark .status-tag-approved,
+html.dark .status-btn-accepted {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+html.dark .status-icon-circle.icon-pending {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+html.dark .status-icon-circle.icon-approved {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+html.dark .status-icon-circle.icon-rejected {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* 7. Forms, Inputs, Dropdowns & Controls */
+html.dark input,
+html.dark select,
+html.dark textarea,
+html.dark .location-input,
+html.dark .select-input,
+html.dark .date-input {
+  background: var(--surface-raised) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink) !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: var(--muted) !important;
+}
+
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  background: var(--surface-raised) !important;
+  border-color: var(--blue) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25) !important;
+}
+
+html.dark select option {
+  background: #131d36 !important;
+  color: #f8fafc !important;
+}
+
+html.dark input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+}
+
+/* Autocomplete Dropdown */
+html.dark .location-suggestions {
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65) !important;
+}
+
+html.dark .location-suggestion {
+  border-bottom-color: var(--line) !important;
+  color: var(--ink) !important;
+}
+
+html.dark .location-suggestion:hover,
+html.dark .location-suggestion.highlighted {
+  background: var(--surface-raised) !important;
+}
+
+html.dark .suggestion-pin-box {
+  background: var(--surface-raised) !important;
+  color: var(--blue) !important;
+}
+
+html.dark .suggestion-copy strong {
+  color: var(--ink) !important;
+}
+
+html.dark .suggestion-copy small {
+  color: var(--muted) !important;
+}
+
+html.dark .autocomplete-status-item {
+  color: var(--muted) !important;
+}
+
+/* Form Cards & Route Editor */
+html.dark .form-card,
+html.dark .search-form-card,
+html.dark .route-input-group,
+html.dark .route-stops-container,
+html.dark .stop-card,
+html.dark .route-summary-card {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+}
+
+html.dark .stop-card-header {
+  border-bottom-color: var(--line) !important;
+}
+
+html.dark .chip-btn {
+  background: var(--surface-raised) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink-secondary) !important;
+}
+
+html.dark .chip-btn:hover {
+  background: var(--surface-hover) !important;
+  color: var(--blue) !important;
+  border-color: var(--blue) !important;
+}
+
+html.dark .booking-deadline-notice {
+  background: rgba(59, 130, 246, 0.08) !important;
+  border-color: rgba(59, 130, 246, 0.25) !important;
+  color: var(--ink) !important;
+}
+
+html.dark .booking-deadline-notice p {
+  color: var(--ink-secondary) !important;
+}
+
+/* Results Alert / Notify Me Button in Dark Mode */
+html.dark .results-alert-btn {
+  background: rgba(59, 130, 246, 0.14) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+html.dark .results-alert-btn:hover:not(:disabled) {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+}
+
+html.dark .results-alert-btn.active {
+  background: rgba(16, 185, 129, 0.16) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+html.dark .results-alert-btn.active:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+}
+
+html.dark .results-alert-notice {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.28) !important;
+  color: #93c5fd !important;
+}
+
+/* 8. Modals & Dialogs */
+html.dark .modal-overlay {
+  background: rgba(3, 7, 18, 0.8) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html.dark .profile-onboarding-card,
+html.dark .ride-action-modal-card {
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+  box-shadow: 0 24px 48px -8px rgba(0, 0, 0, 0.75) !important;
+}
+
+html.dark .onboarding-icon-box {
+  background: var(--surface-raised) !important;
+  color: var(--blue) !important;
+}
+
+html.dark .modal-close-btn {
+  color: var(--muted) !important;
+}
+
+html.dark .modal-close-btn:hover {
+  color: var(--ink) !important;
+}
+
+html.dark .gender-select-trigger {
+  background: var(--surface-raised) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink) !important;
+}
+
+html.dark .gender-select-dropdown {
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65) !important;
+}
+
+html.dark .gender-option:hover {
+  background: var(--surface-raised) !important;
+}
+
+/* 9. Buttons in Dark Mode */
+html.dark .button-primary {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+}
+
+html.dark .button-primary:hover {
+  background: #3b82f6 !important;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
+}
+
+html.dark .button-outline {
+  background: transparent !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink) !important;
+}
+
+html.dark .button-outline:hover {
+  background: var(--surface-raised) !important;
+  border-color: var(--blue) !important;
+  color: var(--blue) !important;
+}
+
+/* 10. Install App Banner & Contact Share */
+html.dark .install-app-banner {
+  background: rgba(19, 29, 54, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55) !important;
+}
+
+html.dark .install-banner-text strong {
+  color: #f8fafc !important;
+}
+
+html.dark .install-banner-text small {
+  color: #94a3b8 !important;
+}
+
+/* 10. Contact Share Card & Actions (In Your Bookings & Incoming) */
+html.dark .contact-share-card {
+  background: rgba(16, 185, 129, 0.08) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+html.dark .contact-header {
+  color: #34d399 !important;
+  border-bottom-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+html.dark .contact-verified-icon {
+  stroke: #34d399 !important;
+}
+
+html.dark .contact-person {
+  color: #f8fafc !important;
+}
+
+html.dark .contact-person strong {
+  color: #f8fafc !important;
+}
+
+html.dark .contact-reg {
+  color: #94a3b8 !important;
+}
+
+html.dark .contact-btn.call-btn {
+  background: var(--surface) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+}
+
+html.dark .contact-btn.call-btn:hover {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: #34d399 !important;
+}
+
+html.dark .contact-btn.call-btn svg {
+  stroke: #34d399 !important;
+}
+
+html.dark .contact-btn.whatsapp-btn {
+  background: rgba(37, 211, 102, 0.16) !important;
+  border: 1px solid rgba(37, 211, 102, 0.4) !important;
+  color: #4ade80 !important;
+}
+
+html.dark .contact-btn.whatsapp-btn:hover {
+  background: rgba(37, 211, 102, 0.26) !important;
+  border-color: #4ade80 !important;
+}
+
+html.dark .contact-btn.whatsapp-btn svg {
+  stroke: #4ade80 !important;
+}
+
+html.dark .contact-empty-hint {
+  color: #94a3b8 !important;
+}
+
+/* 11. Sharing Ended Banners (In Your Bookings & Incoming) */
+html.dark .sharing-ended-banner.completed {
+  background: rgba(139, 92, 246, 0.14) !important;
+  color: #c4b5fd !important;
+  border: 1px solid rgba(139, 92, 246, 0.35) !important;
+}
+
+html.dark .sharing-ended-banner.completed svg {
+  stroke: #c4b5fd !important;
+}
+
+html.dark .sharing-ended-banner.cancelled {
+  background: rgba(239, 68, 68, 0.14) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+
+html.dark .sharing-ended-banner.cancelled svg {
+  stroke: #f87171 !important;
+}
+
+html.dark .sharing-ended-banner.expired {
+  background: rgba(100, 116, 139, 0.14) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(100, 116, 139, 0.3) !important;
+}
+
+html.dark .sharing-ended-banner.expired svg {
+  stroke: #94a3b8 !important;
+}
+
+/* 12. Booking Row Cards & All Internal Elements */
+html.dark .booking-row-card {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.dark .booking-row-card:hover {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+html.dark .route-endpoints strong {
+  color: #f8fafc !important;
+}
+
+html.dark .route-arrow {
+  color: #60a5fa !important;
+  stroke: #60a5fa !important;
+}
+
+html.dark .booking-meta-line {
+  color: #94a3b8 !important;
+}
+
+html.dark .meta-entry {
+  color: #94a3b8 !important;
+}
+
+html.dark .meta-entry svg {
+  stroke: #94a3b8 !important;
+}
+
+html.dark .booking-price-pill {
+  color: #f8fafc !important;
+}
+
+html.dark .booking-price-pill .cost-per-seat {
+  color: #f8fafc !important;
+}
+
+html.dark .booking-price-pill .cost-separator {
+  color: #64748b !important;
+}
+
+html.dark .booking-price-pill .cost-total {
+  color: #34d399 !important;
+}
+
+html.dark .passenger-summary-row,
+html.dark .driver-summary-row {
+  color: #cbd5e1 !important;
+}
+
+html.dark .passenger-summary-row strong,
+html.dark .driver-summary-row strong {
+  color: #f8fafc !important;
+}
+
+html.dark .danger-outline {
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #f87171 !important;
+  background: transparent !important;
+}
+
+html.dark .danger-outline:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: #ef4444 !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .danger-outline svg {
+  stroke: #f87171 !important;
+}
+
+/* 13. All Tabs & Tab Icons Across Application */
+
+/* My Trips Tabs (Desktop & Mobile) */
+html.dark .trips-tab-bar {
+  background: rgba(19, 29, 54, 0.8) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+html.dark .tab-btn {
+  color: #94a3b8 !important;
+}
+
+html.dark .tab-btn svg {
+  stroke: #94a3b8 !important;
+}
+
+html.dark .tab-btn:hover {
+  color: #f8fafc !important;
+}
+
+html.dark .tab-btn:hover svg {
+  stroke: #f8fafc !important;
+}
+
+html.dark .tab-btn.active {
+  background: #1a2748 !important;
+  color: #60a5fa !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+}
+
+html.dark .tab-btn.active svg {
+  stroke: #60a5fa !important;
+}
+
+html.dark .tab-pill-badge {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+}
+
+html.dark .mobile-section-header {
+  border-bottom-color: var(--line) !important;
+}
+
+html.dark .mobile-section-title {
+  color: #f8fafc !important;
+}
+
+html.dark .mobile-section-title svg {
+  stroke: #60a5fa !important;
+}
+
+/* Auth Tabs */
+html.dark .auth-card {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+}
+
+html.dark .auth-tabs {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--line) !important;
+}
+
+html.dark .auth-tab-btn {
+  color: #94a3b8 !important;
+}
+
+html.dark .auth-tab-btn:hover {
+  color: #f8fafc !important;
+}
+
+html.dark .auth-tab-btn.active {
+  background: var(--surface) !important;
+  color: #60a5fa !important;
+}
+
+/* 14. Empty States & Notice Banners in Dark Mode */
+html.dark .empty-state {
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+}
+
+html.dark .empty-state h3 {
+  color: #f8fafc !important;
+}
+
+html.dark .empty-state p {
+  color: #94a3b8 !important;
+}
+
+html.dark .subtle-error-banner {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+html.dark .revalidating-notice {
+  color: #94a3b8 !important;
+}
+
+html.dark .revalidating-notice svg {
+  stroke: #94a3b8 !important;
+}
+
+html.dark .revalidating-badge {
+  color: #94a3b8 !important;
+}
+
+html.dark .revalidating-badge svg {
+  stroke: #94a3b8 !important;
+}
+
+html.dark .notice-error {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #f87171 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+html.dark .notice-error svg {
+  stroke: #f87171 !important;
+}
+
+html.dark .notice-success {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+html.dark .notice-success svg {
+  stroke: #34d399 !important;
+}
+
+html.dark .notice-info,
+html.dark .search-hint-box {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #93c5fd !important;
+  border-color: rgba(59, 130, 246, 0.25) !important;
+}
+
+html.dark .user-avatar {
+  background: linear-gradient(135deg, #1e3a8a, #3b82f6) !important;
+  color: #ffffff !important;
+}
+
+/* 15. Mobile Responsive Optimization */
+@media (max-width: 640px) {
+  .theme-toggle-switch {
+    transform: scale(0.92);
+  }
+
+  .account-area {
+    gap: 8px;
+  }
+
+  html.dark .trips-tab-bar {
+    border: none !important;
+    border-bottom: 2px solid var(--line) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
+  html.dark .tab-btn {
+    background: transparent !important;
+    border-bottom: 2px solid transparent !important;
+  }
+
+  html.dark .tab-btn.active {
+    background: transparent !important;
+    color: #60a5fa !important;
+    border-bottom-color: #60a5fa !important;
+    box-shadow: none !important;
+  }
+}
+
 
 
 
