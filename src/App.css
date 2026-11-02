@@ -2033,6 +2033,311 @@ h1, h2, h3, h4 {
   box-sizing: border-box;
 }
 
+/* Modern Segmented Auth Tab Switcher */
+.auth-segmented-nav {
+  display: flex;
+  align-items: center;
+  background: var(--surface-raised, #f1f5f9);
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 22px;
+  gap: 4px;
+  user-select: none;
+}
+
+.auth-segment-pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  color: var(--muted, #64748b);
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1.2;
+}
+
+.auth-segment-pill:hover {
+  color: var(--ink, #0f172a);
+}
+
+.auth-segment-pill.active {
+  background: var(--surface, #ffffff);
+  color: var(--blue, #2563eb);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .auth-segmented-nav {
+  background: #0f172a !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .auth-segment-pill {
+  color: #94a3b8 !important;
+}
+
+html.dark .auth-segment-pill:hover {
+  color: #f8fafc !important;
+}
+
+html.dark .auth-segment-pill.active {
+  background: #1e293b !important;
+  color: #60a5fa !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 2-Step Registration Progress Indicator */
+.reg-step-tracker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 6px 14px;
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+html.dark .reg-step-tracker {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.reg-step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted, #64748b);
+  transition: color 0.2s ease;
+}
+
+.reg-step-badge.active {
+  color: var(--blue, #2563eb);
+}
+
+html.dark .reg-step-badge.active {
+  color: #60a5fa;
+}
+
+.reg-step-circle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-raised, #e2e8f0);
+  color: var(--muted, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.reg-step-badge.active .reg-step-circle {
+  background: var(--blue, #2563eb);
+  color: #ffffff;
+}
+
+.reg-step-badge.done .reg-step-circle {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.reg-step-arrow {
+  color: var(--muted, #94a3b8);
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+/* Registration Header & Badge */
+.reg-header {
+  margin-bottom: 20px;
+}
+
+.reg-trust-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--blue, #2563eb);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 10px;
+}
+
+html.dark .reg-trust-pill {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+.reg-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--ink);
+  letter-spacing: -0.3px;
+}
+
+.reg-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* Email & OTP Input Group */
+.reg-email-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reg-otp-btn {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: var(--radius-md, 8px);
+  border: 1.5px solid var(--blue, #2563eb);
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--blue, #2563eb);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.reg-otp-btn:hover:not(:disabled) {
+  background: var(--blue, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.reg-otp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-color: var(--border, #cbd5e1);
+  color: var(--muted, #64748b);
+  background: var(--surface-raised, #f1f5f9);
+}
+
+html.dark .reg-otp-btn {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(96, 165, 250, 0.35);
+  color: #93c5fd;
+}
+
+html.dark .reg-otp-btn:hover:not(:disabled) {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* Modern OTP Verification Card */
+.reg-otp-card {
+  margin-top: 12px;
+  padding: 16px;
+  background: linear-gradient(145deg, rgba(37, 99, 235, 0.04), rgba(59, 130, 246, 0.08));
+  border: 1.5px solid rgba(37, 99, 235, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.05);
+  animation: fadeIn 0.2s ease-out;
+}
+
+html.dark .reg-otp-card {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.6));
+  border-color: rgba(96, 165, 250, 0.28);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.reg-otp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.reg-otp-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.reg-otp-header-expiry {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+}
+
+.reg-otp-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reg-otp-digits-input {
+  flex: 1;
+  height: 44px;
+  font-size: 18px !important;
+  letter-spacing: 6px !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  border-radius: var(--radius-md, 8px) !important;
+}
+
+.reg-otp-verify-action-btn {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-md, 8px);
+  white-space: nowrap;
+}
+
+/* Verified Email Pill */
+.reg-verified-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(22, 163, 74, 0.1);
+  color: #166534;
+  border: 1px solid rgba(22, 163, 74, 0.25);
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+html.dark .reg-verified-pill {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
 .auth-form {
   width: 100%;
   display: flex;
@@ -5166,6 +5471,23 @@ html.dark .mobile-section-title svg {
 html.dark .auth-card {
   background: var(--surface) !important;
   border-color: var(--line) !important;
+}
+
+html.dark .auth-mode-tab {
+  color: #94a3b8 !important;
+}
+
+html.dark .auth-mode-tab.active {
+  color: #60a5fa !important;
+  border-bottom-color: #60a5fa !important;
+}
+
+html.dark .set-password-view .password-toggle-btn {
+  color: #94a3b8 !important;
+}
+
+html.dark .set-password-view .password-toggle-btn:hover {
+  color: #f8fafc !important;
 }
 
 html.dark .auth-tabs {
