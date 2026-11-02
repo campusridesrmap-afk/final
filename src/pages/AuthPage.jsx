@@ -15,6 +15,8 @@ import {
   RotateCcw,
   KeyRound,
   Info,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { CAMPUS_RIDE_LOGO } from "../assets/logo";
 import { supabase } from "../lib/supabase";
@@ -25,11 +27,22 @@ export default function AuthPage({
   errorMessage,
   onClearError,
 }) {
-  const [authMode, setAuthMode] = useState("login"); // "login" | "register"
+  const [authMode, setAuthMode] = useState("login"); // "login" | "register" | "set_password"
 
   // Login form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loginNotice, setLoginNotice] = useState("");
+
+  // Set Password form state (after successful registration)
+  const [pendingRegData, setPendingRegData] = useState(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [setPasswordError, setSetPasswordError] = useState("");
+  const [setPasswordSuccess, setSetPasswordSuccess] = useState("");
 
   // Registration form state
   const [regFullName, setRegFullName] = useState("");
@@ -43,20 +56,21 @@ export default function AuthPage({
   const [existingAccountNotice, setExistingAccountNotice] = useState("");
   const [existingAppNotice, setExistingAppNotice] = useState("");
 
-  // Inline Application Status state
-  const [savedToken, setSavedToken] = useState(() => {
-    try {
-      return localStorage.getItem("campusride_registration_token") || "";
-    } catch (_err) {
-      return "";
-    }
-  });
+  // Inline Application Status state (in-memory only, no localStorage caching)
+  const [savedToken, setSavedToken] = useState("");
   const [activeRegistration, setActiveRegistration] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [justResubmitted, setJustResubmitted] = useState(false);
+
+  // Clear any legacy registration status token from localStorage on mount
+  useEffect(() => {
+    try {
+      localStorage.removeItem("campusride_registration_token");
+    } catch (_) {}
+  }, []);
 
   // OTP Verification state for student registration
   const [otpCode, setOtpCode] = useState("");
@@ -69,8 +83,6 @@ export default function AuthPage({
   const [otpCooldown, setOtpCooldown] = useState(0);
   const [otpNotice, setOtpNotice] = useState("");
   const [otpError, setOtpError] = useState("");
-
-  const hasLoadedSavedTokenRef = useRef(false);
 
   // OTP Cooldown countdown timer
   useEffect(() => {
@@ -113,11 +125,11 @@ export default function AuthPage({
 
     setOtpSending(true);
 
-    // After ~1.2s, open the clean OTP box!
+    // After exactly 3 seconds, open the clean OTP box!
     const openTimer = setTimeout(() => {
       setOtpSent(true);
       setOtpSending(false);
-    }, 4500);
+    }, 3000);
 
     try {
       const { data, error } = await supabase.functions.invoke("registration-email-otp", {
@@ -234,11 +246,6 @@ export default function AuthPage({
 
       setActiveRegistration(data.registration);
       setSavedToken(tokenToFetch.trim());
-      try {
-        localStorage.setItem("campusride_registration_token", tokenToFetch.trim());
-      } catch (_saveErr) {
-        /* ignore */
-      }
     } catch (err) {
       setStatusError(err.message || "Unable to refresh application status.");
     } finally {
@@ -247,17 +254,10 @@ export default function AuthPage({
     }
   }, []);
 
-  // Hydrate saved registration status across page reloads
-  useEffect(() => {
-    if (savedToken && !hasLoadedSavedTokenRef.current) {
-      hasLoadedSavedTokenRef.current = true;
-      fetchApplicationStatus(savedToken);
-    }
-  }, [savedToken, fetchApplicationStatus]);
-
   function handleLoginSubmit(e) {
     e.preventDefault();
     if (onClearError) onClearError();
+    setLoginNotice("");
     onLogin({ email, password });
   }
 
@@ -266,6 +266,7 @@ export default function AuthPage({
     setRegError("");
     setExistingAccountNotice("");
     setExistingAppNotice("");
+    setLoginNotice("");
 
     const cleanName = regFullName.trim();
     const cleanEmail = regEmail.trim().toLowerCase();
@@ -293,15 +294,74 @@ export default function AuthPage({
       return;
     }
 
-    // Require email OTP verification for new registrations
+    setRegBusy(true);
+
+    let activeToken = verificationToken;
+
+    // Verify OTP on registration submit if not yet verified
     if (!isResubmitMode) {
-      if (!otpVerified || !verificationToken || cleanEmail !== verifiedEmail) {
-        setRegError("Please verify your SRM email address with an OTP before registering.");
-        return;
+      if (!otpVerified || !activeToken || cleanEmail !== verifiedEmail) {
+        const cleanOtp = otpCode.trim();
+        if (!cleanOtp) {
+          if (!otpSent) {
+            setRegError("Please click 'Send Code' to receive a verification OTP on your SRM email.");
+          } else {
+            setRegError("Please enter the 6-digit verification code sent to your email.");
+          }
+          setRegBusy(false);
+          return;
+        }
+        if (!/^\d{6}$/.test(cleanOtp)) {
+          setRegError("The verification code must be exactly 6 digits.");
+          setRegBusy(false);
+          return;
+        }
+
+        setOtpVerifying(true);
+        setOtpError("");
+        try {
+          const { data: otpData, error: otpErr } = await supabase.functions.invoke("registration-email-otp", {
+            body: {
+              action: "verify_otp",
+              email: cleanEmail,
+              otp: cleanOtp,
+            },
+          });
+
+          if (otpErr) {
+            let msg = otpErr.message;
+            try {
+              if (otpErr.context && typeof otpErr.context.json === "function") {
+                const errBody = await otpErr.context.json();
+                if (errBody?.error) msg = errBody.error;
+              }
+            } catch (_) {}
+            throw new Error(msg || "Verification request failed.");
+          }
+
+          if (!otpData?.success || !otpData?.verificationToken) {
+            throw new Error(otpData?.error || "Invalid verification code.");
+          }
+
+          activeToken = otpData.verificationToken;
+          setOtpVerified(true);
+          setVerificationToken(activeToken);
+          setVerifiedEmail(cleanEmail);
+          setOtpNotice("SRM email verified successfully!");
+          setOtpError("");
+        } catch (verifyErr) {
+          console.error("Verify OTP on submit error:", verifyErr);
+          const errorMsg = verifyErr.message || "Invalid verification code. Please check and try again.";
+          setOtpError(errorMsg);
+          setRegError(errorMsg);
+          setOtpVerifying(false);
+          setRegBusy(false);
+          return;
+        } finally {
+          setOtpVerifying(false);
+        }
       }
     }
-
-    setRegBusy(true);
 
     try {
       let rpcResult;
@@ -319,7 +379,7 @@ export default function AuthPage({
           p_full_name: cleanName,
           p_email: cleanEmail,
           p_registration_number: cleanReg,
-          p_verification_token: verificationToken,
+          p_verification_token: activeToken,
         });
       }
 
@@ -338,16 +398,50 @@ export default function AuthPage({
 
       if (data.code === "EXISTING_ACCOUNT") {
         // Case A — Active account already exists
-        setExistingAccountNotice(data.message || "You already have an active account. Please log in instead.");
+        // Check if user has NOT changed their password yet (password is still their SRM registration number)
+        let isUnchangedPassword = false;
+        try {
+          sessionStorage.setItem("campusride_setting_password", "true");
+          const { data: testSignIn, error: testSignInErr } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: cleanReg,
+          });
+
+          if (!testSignInErr && testSignIn?.user) {
+            isUnchangedPassword = true;
+            // Password is still the registration number! User just verified OTP, so allow them to set their password now!
+            setPendingRegData({
+              fullName: cleanName || testSignIn.user?.user_metadata?.full_name,
+              email: cleanEmail,
+              regNumber: cleanReg,
+              token: savedToken || null,
+              userId: testSignIn.user.id,
+            });
+
+            setNewPassword("");
+            setConfirmPassword("");
+            setShowNewPassword(false);
+            setShowConfirmPassword(false);
+            setSetPasswordError("");
+            setSetPasswordSuccess("");
+            setAuthMode("set_password");
+            return;
+          } else {
+            sessionStorage.removeItem("campusride_setting_password");
+          }
+        } catch (_) {
+          try {
+            sessionStorage.removeItem("campusride_setting_password");
+          } catch (__) {}
+        }
+
+        if (!isUnchangedPassword) {
+          setExistingAccountNotice(data.message || "You already have an active account with a set password. Please log in instead.");
+        }
       } else if (data.code === "EXISTING_APPLICATION") {
         // Case B — Existing application detected
         const token = data.token;
         if (token) {
-          try {
-            localStorage.setItem("campusride_registration_token", token);
-          } catch (_err) {
-            /* ignore */
-          }
           setSavedToken(token);
           setJustSubmitted(false);
           setJustResubmitted(false);
@@ -360,34 +454,38 @@ export default function AuthPage({
         // Case C — Rejected application updated in-place and returned to pending
         const token = data.token || savedToken;
         if (token) {
-          try {
-            localStorage.setItem("campusride_registration_token", token);
-          } catch (_err) {
-            /* ignore */
-          }
           setSavedToken(token);
           setJustSubmitted(false);
           setJustResubmitted(true);
           setIsResubmitMode(false);
           await fetchApplicationStatus(token);
         }
-
-
       } else if (data.code === "AUTO_APPROVED" || data.code === "CREATED" || data.success) {
-        // Case D — Application automatically approved via verified email OTP
+        // Case D — Registration successful!
+        // Immediately redirect user to "Set Your Password" page without asking to log in first!
         const token = data.token;
         if (token) {
-          try {
-            localStorage.setItem("campusride_registration_token", token);
-          } catch (_err) {
-            /* ignore */
-          }
           setSavedToken(token);
-          setJustSubmitted(true);
-          setJustResubmitted(false);
-          setIsResubmitMode(false);
-          await fetchApplicationStatus(token);
         }
+
+        setPendingRegData({
+          fullName: cleanName,
+          email: cleanEmail,
+          regNumber: cleanReg,
+          token: token,
+          userId: data.userId,
+        });
+
+        // Clear password setup form state
+        setNewPassword("");
+        setConfirmPassword("");
+        setShowNewPassword(false);
+        setShowConfirmPassword(false);
+        setSetPasswordError("");
+        setSetPasswordSuccess("");
+
+        // Immediately transition to Set Your Password page
+        setAuthMode("set_password");
       } else {
         setRegError(data.message || "Registration submission failed.");
       }
@@ -396,6 +494,115 @@ export default function AuthPage({
       setRegError(err.message || "Something went wrong. Please try again.");
     } finally {
       setRegBusy(false);
+    }
+  }
+
+  // Handle Set Your Password form submission
+  async function handleSetPasswordSubmit(e) {
+    e.preventDefault();
+    setSetPasswordError("");
+    setSetPasswordSuccess("");
+
+    if (!pendingRegData?.email) {
+      setSetPasswordError("Registration session expired. Please register again.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setSetPasswordError("Password must be at least 6 characters long.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setSetPasswordError("Passwords do not match. Please re-enter.");
+      return;
+    }
+
+    setSavingPassword(true);
+
+    try {
+      let passwordSaved = false;
+
+      // 1. Primary: Use dedicated set_registration_password RPC (no login required)
+      if (pendingRegData.token) {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc("set_registration_password", {
+          p_email: pendingRegData.email,
+          p_token: pendingRegData.token,
+          p_password: newPassword,
+        });
+
+        if (!rpcErr && (rpcData?.success || rpcData === true)) {
+          passwordSaved = true;
+        }
+      }
+
+      // 2. Fallback: Authenticate with initial temporary credentials and update securely
+      if (!passwordSaved) {
+        try {
+          sessionStorage.setItem("campusride_setting_password", "true");
+        } catch (_) {}
+
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: pendingRegData.email,
+          password: pendingRegData.regNumber,
+        });
+
+        if (signInErr) throw signInErr;
+
+        // Try set_user_password RPC
+        let updatedViaUserRpc = false;
+        const { data: userRpcData, error: userRpcErr } = await supabase.rpc("set_user_password", {
+          new_password: newPassword,
+        });
+
+        if (!userRpcErr && (userRpcData?.success || userRpcData === true)) {
+          updatedViaUserRpc = true;
+        }
+
+        if (!updatedViaUserRpc) {
+          const { error: authUpdateErr } = await supabase.auth.updateUser({
+            password: newPassword,
+          });
+          if (authUpdateErr) throw authUpdateErr;
+        }
+
+        // Clear must_change_password flag in profiles
+        try {
+          await supabase
+            .from("profiles")
+            .update({ must_change_password: false, updated_at: new Date().toISOString() })
+            .eq("id", signInData.user.id);
+        } catch (_) {}
+      }
+
+      // Clear password setting guard now that password is saved
+      try {
+        sessionStorage.removeItem("campusride_setting_password");
+      } catch (_) {}
+
+      setSetPasswordSuccess("Password saved successfully! Logging you in...");
+
+      const targetEmail = pendingRegData.email;
+      const targetPassword = newPassword;
+
+      // Automatically log in the student directly into CampusRide!
+      setTimeout(() => {
+        setAuthMode("login");
+        setEmail(targetEmail);
+        setPassword(targetPassword);
+        setPendingRegData(null);
+        if (onLogin) {
+          onLogin({ email: targetEmail, password: targetPassword });
+        }
+      }, 600);
+    } catch (err) {
+      console.error("Set password error:", err);
+      setSetPasswordError(err.message || "Failed to save password. Please try again.");
+      try {
+        sessionStorage.removeItem("campusride_setting_password");
+      } catch (_) {}
+    } finally {
+      setSavingPassword(false);
     }
   }
 
@@ -481,49 +688,33 @@ export default function AuthPage({
 
       {/* Main Authentication Card */}
       <div className="form-card auth-card">
-        {/* Toggle between Log In and Register */}
-        <div className="auth-mode-tabs" style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: "20px" }}>
+        {/* Modern Segmented Navigation Tabs */}
+        <div className="auth-segmented-nav">
           <button
             type="button"
-            className={`auth-mode-tab ${authMode === "login" ? "active" : ""}`}
+            className={`auth-segment-pill ${authMode === "login" ? "active" : ""}`}
             onClick={() => {
               setAuthMode("login");
               if (onClearError) onClearError();
             }}
-            style={{
-              flex: 1,
-              padding: "10px",
-              background: "none",
-              border: "none",
-              borderBottom: authMode === "login" ? "2px solid var(--primary)" : "2px solid transparent",
-              fontWeight: authMode === "login" ? 600 : 400,
-              color: authMode === "login" ? "var(--primary)" : "var(--muted)",
-              cursor: "pointer",
-            }}
           >
-            Log In
+            <Lock size={14} />
+            <span>Log In</span>
           </button>
           <button
             type="button"
-            className={`auth-mode-tab ${authMode === "register" ? "active" : ""}`}
+            className={`auth-segment-pill ${authMode === "register" || authMode === "set_password" ? "active" : ""}`}
             onClick={() => {
-              setAuthMode("register");
-              setRegError("");
-              setExistingAccountNotice("");
-              setExistingAppNotice("");
-            }}
-            style={{
-              flex: 1,
-              padding: "10px",
-              background: "none",
-              border: "none",
-              borderBottom: authMode === "register" ? "2px solid var(--primary)" : "2px solid transparent",
-              fontWeight: authMode === "register" ? 600 : 400,
-              color: authMode === "register" ? "var(--primary)" : "var(--muted)",
-              cursor: "pointer",
+              if (authMode !== "set_password") {
+                setAuthMode("register");
+                setRegError("");
+                setExistingAccountNotice("");
+                setExistingAppNotice("");
+              }
             }}
           >
-            Register
+            <Sparkles size={14} />
+            <span>{authMode === "set_password" ? "Set Password" : "Register"}</span>
           </button>
         </div>
 
@@ -534,6 +725,13 @@ export default function AuthPage({
             <p className="auth-subtitle">
               Enter your email and password to access your CampusRide account.
             </p>
+
+            {loginNotice && (
+              <div className="notice notice-success" role="status" style={{ marginBottom: "16px" }}>
+                <CheckCircle2 size={16} style={{ flexShrink: 0, color: "#166534" }} />
+                <span>{loginNotice}</span>
+              </div>
+            )}
 
             {errorMessage && (
               <div className="notice notice-error" role="alert">
@@ -598,6 +796,205 @@ export default function AuthPage({
 
             </form>
           </>
+        ) : authMode === "set_password" ? (
+          /* ===================== SET PASSWORD MODE ===================== */
+          <div className="set-password-view" style={{ animation: "fadeIn 0.2s ease" }}>
+            {/* 2-Step Registration Progress Indicator */}
+            <div className="reg-step-tracker">
+              <span className="reg-step-badge done">
+                <span className="reg-step-circle">✓</span> Details & OTP
+              </span>
+              <span className="reg-step-arrow">→</span>
+              <span className="reg-step-badge active">
+                <span className="reg-step-circle">2</span> Set Password
+              </span>
+            </div>
+
+            <div style={{ textAlign: "center", marginBottom: "20px" }}>
+              <div
+                style={{
+                  width: "50px",
+                  height: "50px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.2))",
+                  color: "var(--primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px",
+                }}
+              >
+                <KeyRound size={26} />
+              </div>
+              <h2 style={{ margin: "0 0 6px", fontSize: "22px" }}>Set Your Password</h2>
+              <p className="auth-subtitle" style={{ margin: 0 }}>
+                Choose a secure password. You'll be logged in automatically.
+              </p>
+            </div>
+
+            {/* Account Info Badge */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                padding: "10px 14px",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "8px",
+                marginBottom: "18px",
+                fontSize: "12.5px",
+                color: "var(--ink)",
+              }}
+            >
+              <CheckCircle2 size={15} style={{ color: "#16a34a", flexShrink: 0 }} />
+              <span style={{ fontWeight: 600 }}>{pendingRegData?.fullName || regFullName}</span>
+              <span style={{ color: "var(--muted)" }}>•</span>
+              <span style={{ color: "var(--muted)", wordBreak: "break-all" }}>{pendingRegData?.email || regEmail}</span>
+            </div>
+
+            {setPasswordError && (
+              <div className="notice notice-error" role="alert" style={{ marginBottom: "16px" }}>
+                <AlertCircle size={15} />
+                <span>{setPasswordError}</span>
+              </div>
+            )}
+
+            {setPasswordSuccess && (
+              <div className="notice notice-success" role="status" style={{ marginBottom: "16px" }}>
+                <CheckCircle2 size={15} />
+                <span>{setPasswordSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSetPasswordSubmit} className="auth-form">
+              <div className="field">
+                <label className="field-label">
+                  <Lock size={15} /> New Password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password (min. 6 characters)"
+                    disabled={savingPassword}
+                    autoFocus
+                    style={{ paddingRight: "42px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((p) => !p)}
+                    aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    tabIndex={-1}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      padding: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <small style={{ color: "var(--muted)", fontSize: "11px", marginTop: "4px", display: "block" }}>
+                  Password must be at least 6 characters long.
+                </small>
+              </div>
+
+              <div className="field">
+                <label className="field-label">
+                  <Lock size={15} /> Confirm Password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your new password"
+                    disabled={savingPassword}
+                    style={{ paddingRight: "42px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((p) => !p)}
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    tabIndex={-1}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      padding: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {confirmPassword && newPassword !== confirmPassword && (
+                  <small style={{ color: "#dc2626", fontSize: "11px", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <AlertCircle size={12} /> Passwords do not match
+                  </small>
+                )}
+                {confirmPassword && newPassword === confirmPassword && confirmPassword.length >= 6 && (
+                  <small style={{ color: "#16a34a", fontSize: "11px", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <CheckCircle2 size={12} /> Passwords match
+                  </small>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="button button-primary button-full auth-submit-btn"
+                disabled={savingPassword || newPassword.length < 6 || newPassword !== confirmPassword}
+                style={{ marginTop: "10px" }}
+              >
+                {savingPassword ? "Saving & Logging In..." : "Save Password & Log In"}
+              </button>
+
+              <div style={{ marginTop: "14px", textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      sessionStorage.removeItem("campusride_setting_password");
+                      await supabase.auth.signOut();
+                    } catch (_) {}
+                    setAuthMode("login");
+                    setPendingRegData(null);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--muted)",
+                    fontSize: "12.5px",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Cancel and go to Login
+                </button>
+              </div>
+            </form>
+          </div>
         ) : (
           /* ===================== REGISTER MODE ===================== */
           <>
@@ -692,11 +1089,8 @@ export default function AuthPage({
                           marginBottom: "12px",
                         }}
                       >
-                        <p style={{ margin: "0 0 8px", fontSize: "14px", fontWeight: 700, color: "#14532d" }}>
-                          🔐 Your temporary password is your SRM Registration Number.
-                        </p>
                         <p style={{ margin: 0, fontSize: "13px", color: "#166534", lineHeight: 1.5 }}>
-                          Please use your registered SRM email and temporary password to log in to CampusRide. You'll be required to change your password on your first login.
+                          Please use your registered SRM email and account password to log in to CampusRide.
                         </p>
                       </div>
 
@@ -854,12 +1248,30 @@ export default function AuthPage({
             ) : (
               /* REGISTRATION FORM */
               <>
-                <h2>Register for CampusRide</h2>
-                <p className="auth-subtitle">
-                  {isResubmitMode
-                    ? "Correct your details and submit a new application."
-                    : "Submit your SRM-AP student credentials for verification and access."}
-                </p>
+                {!isResubmitMode && (
+                  <div className="reg-step-tracker">
+                    <span className="reg-step-badge active">
+                      <span className="reg-step-circle">1</span> Details & OTP
+                    </span>
+                    <span className="reg-step-arrow">→</span>
+                    <span className="reg-step-badge">
+                      <span className="reg-step-circle">2</span> Set Password
+                    </span>
+                  </div>
+                )}
+
+                <div className="reg-header">
+                  <div className="reg-trust-pill">
+                    <ShieldCheck size={13} />
+                    Verified SRM-AP Community
+                  </div>
+                  <h2>{isResubmitMode ? "Update Application" : "Create Student Account"}</h2>
+                  <p>
+                    {isResubmitMode
+                      ? "Correct your details and submit a new application."
+                      : "Join CampusRide with your official SRM student credentials."}
+                  </p>
+                </div>
 
                 {regError && (
                   <div className="notice notice-error" role="alert" style={{ marginBottom: "14px" }}>
@@ -900,7 +1312,7 @@ export default function AuthPage({
                       required
                       value={regFullName}
                       onChange={(e) => setRegFullName(e.target.value)}
-                      placeholder="Student Name"
+                      placeholder="e.g. Rahul Sharma"
                       disabled={regBusy}
                     />
                   </div>
@@ -908,16 +1320,16 @@ export default function AuthPage({
                   <div className="field">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                       <label className="field-label" style={{ marginBottom: 0 }}>
-                        <Mail size={15} /> SRM University Email Address
+                        <Mail size={15} /> SRM Email Address
                       </label>
                       {!isResubmitMode && otpVerified && regEmail.trim().toLowerCase() === verifiedEmail && (
-                        <span style={{ fontSize: "11px", fontWeight: 600, color: "#166534", display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                          <CheckCircle2 size={13} /> Email Verified
+                        <span className="reg-verified-pill">
+                          <CheckCircle2 size={13} /> Verified
                         </span>
                       )}
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px" }}>
+                    <div className="reg-email-input-group">
                       <input
                         type="email"
                         required
@@ -931,13 +1343,12 @@ export default function AuthPage({
                         otpVerified ? (
                           <button
                             type="button"
-                            className="button button-outline"
+                            className="reg-otp-btn"
                             onClick={() => {
                               setOtpVerified(false);
                               setVerificationToken("");
                               setVerifiedEmail("");
                             }}
-                            style={{ padding: "0 12px", fontSize: "12px", whiteSpace: "nowrap" }}
                             title="Edit email address"
                           >
                             Change
@@ -945,24 +1356,27 @@ export default function AuthPage({
                         ) : (
                           <button
                             type="button"
-                            className="button button-outline"
+                            className="reg-otp-btn"
                             onClick={handleSendOtp}
                             disabled={otpSending || otpCooldown > 0 || regBusy || !regEmail.trim().toLowerCase().endsWith("@srmap.edu.in")}
-                            style={{ padding: "0 14px", fontSize: "12px", whiteSpace: "nowrap", minWidth: "90px" }}
                           >
-                            {otpSending
-                              ? "Sending..."
-                              : otpCooldown > 0
-                              ? `Resend (${otpCooldown}s)`
-                              : otpSent
-                              ? "Resend Code"
-                              : "Send Code"}
+                            {otpSending ? (
+                              <>
+                                <RefreshCw size={13} className="spin-icon" /> Sending...
+                              </>
+                            ) : otpCooldown > 0 ? (
+                              `Resend (${otpCooldown}s)`
+                            ) : otpSent ? (
+                              "Resend Code"
+                            ) : (
+                              "Send Code"
+                            )}
                           </button>
                         )
                       )}
                     </div>
-                    <small style={{ color: "var(--muted)", fontSize: "11px", marginTop: "4px", display: "block" }}>
-                      Only official SRM community email addresses (@srmap.edu.in) are accepted
+                    <small style={{ color: "var(--muted)", fontSize: "11.5px", marginTop: "5px", display: "block" }}>
+                      Only official @srmap.edu.in student emails are accepted.
                     </small>
 
                     {/* Error message before OTP input box is shown */}
@@ -973,58 +1387,43 @@ export default function AuthPage({
                       </div>
                     )}
 
-                    {/* OTP verification input section (Clean with zero backend sending status) */}
+                    {/* Redesigned Sleek OTP verification card */}
                     {!isResubmitMode && otpSent && !otpVerified && (
-                      <div
-                        className="otp-verification-box"
-                        style={{
-                          marginTop: "12px",
-                          padding: "14px",
-                          background: "var(--surface)",
-                          border: "1px solid var(--border)",
-                          borderRadius: "10px",
-                          animation: "fadeIn 0.2s ease",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                          <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)", margin: 0 }}>
-                            Enter 6-Digit Verification Code
-                          </label>
-                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>
-                            Valid for 5 mins
+                      <div className="reg-otp-card">
+                        <div className="reg-otp-header">
+                          <span className="reg-otp-header-title">
+                            <Sparkles size={14} style={{ color: "var(--blue, #2563eb)" }} />
+                            Enter 6-Digit OTP Code
+                          </span>
+                          <span className="reg-otp-header-expiry">
+                            <Clock size={11} style={{ marginRight: "3px", verticalAlign: "middle" }} />
+                            Valid 5m
                           </span>
                         </div>
 
-                        <div style={{ display: "flex", gap: "8px" }}>
+                        <div className="reg-otp-input-row">
                           <input
                             type="text"
                             maxLength={6}
                             value={otpCode}
                             onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                            placeholder="123456"
-                            style={{
-                              flex: 1,
-                              letterSpacing: "4px",
-                              fontWeight: "bold",
-                              fontSize: "16px",
-                              textAlign: "center",
-                            }}
+                            placeholder="······"
+                            className="reg-otp-digits-input"
                             disabled={otpVerifying || regBusy}
                             autoFocus
                           />
                           <button
                             type="button"
-                            className="button button-primary"
+                            className="button button-primary reg-otp-verify-action-btn"
                             onClick={handleVerifyOtp}
                             disabled={otpVerifying || otpCode.trim().length !== 6 || regBusy}
-                            style={{ padding: "0 16px", fontSize: "13px", whiteSpace: "nowrap" }}
                           >
                             {otpVerifying ? "Verifying..." : "Verify Code"}
                           </button>
                         </div>
 
                         {otpError && (
-                          <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <div style={{ fontSize: "12px", color: "#ef4444", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
                             <AlertCircle size={13} style={{ flexShrink: 0 }} />
                             <span>{otpError}</span>
                           </div>
@@ -1035,30 +1434,40 @@ export default function AuthPage({
 
                   <div className="field">
                     <label className="field-label">
-                      <IdCard size={15} /> Registration Number
+                      <IdCard size={15} /> SRM Registration Number
                     </label>
                     <input
                       type="text"
                       required
                       value={regNumber}
                       onChange={(e) => setRegNumber(e.target.value.toUpperCase())}
-                      placeholder="Registration Number"
+                      placeholder="e.g. AP21110010xxx"
                       disabled={regBusy}
                     />
+                    <small style={{ color: "var(--muted)", fontSize: "11.5px", marginTop: "4px", display: "block" }}>
+                      Must match your SRM-AP Student ID card.
+                    </small>
                   </div>
 
                   <button
                     type="submit"
                     className="button button-primary button-full auth-submit-btn"
-                    disabled={regBusy || (!isResubmitMode && !otpVerified)}
+                    disabled={regBusy || otpVerifying}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "18px" }}
                   >
-                    {regBusy
-                      ? "Submitting..."
-                      : isResubmitMode
-                      ? "Resubmit Application"
-                      : !otpVerified
-                      ? "Verify Email to Register"
-                      : "Register for an Account"}
+                    {regBusy ? (
+                      <>
+                        <RefreshCw size={15} className="spin-icon" />
+                        <span>Registering...</span>
+                      </>
+                    ) : isResubmitMode ? (
+                      "Resubmit Application"
+                    ) : (
+                      <>
+                        <span>Continue to Set Password</span>
+                        <ArrowRight size={15} />
+                      </>
+                    )}
                   </button>
 
                   <div className="auth-register-prompt">
