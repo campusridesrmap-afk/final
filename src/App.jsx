@@ -344,7 +344,11 @@ export default function App() {
     if (user?.id) {
       loadProfile(user.id).then((prof) => {
         if (activeUserIdRef.current === user.id) {
-          if (prof?.must_change_password) {
+          // Skip modal if password setup is currently being handled on AuthPage
+          const isSettingRegPassword = typeof window !== "undefined" &&
+            sessionStorage.getItem("campusride_setting_password") === "true";
+
+          if (prof?.must_change_password && !isSettingRegPassword) {
             setPasswordSetupMode("first_login");
             setShowPasswordSetupModal(true);
           } else if (
@@ -354,7 +358,9 @@ export default function App() {
             !prof?.gender ||
             !prof.gender.trim()
           ) {
-            setShowProfileModal(true);
+            if (!isSettingRegPassword) {
+              setShowProfileModal(true);
+            }
           }
         }
       });
@@ -2002,6 +2008,11 @@ export default function App() {
   // Once session is restored, if user is authenticated and on login page, redirect to dashboard
   useEffect(() => {
     if (!authLoading && user && page === "auth") {
+      // Do not redirect if user is in the middle of setting password on AuthPage
+      const isSettingRegPassword = typeof window !== "undefined" &&
+        sessionStorage.getItem("campusride_setting_password") === "true";
+      if (isSettingRegPassword) return;
+
       setPage("find");
       try {
         localStorage.setItem("campusride_current_page", "find");
