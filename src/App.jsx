@@ -9,6 +9,7 @@ import FindRide from "./pages/FindRide";
 import OfferRide from "./pages/OfferRide";
 import MyTrips from "./pages/MyTrips";
 import AuthPage from "./pages/AuthPage";
+import LegalPage from "./pages/LegalPage";
 import RideActionConfirmModal from "./components/RideActionConfirmModal";
 import InstallAppBanner from "./components/InstallAppBanner";
 import {
@@ -71,8 +72,13 @@ export default function App() {
           return "auth";
         }
       } catch {}
+      const path = window.location.pathname.replace(/^\//, "").trim().toLowerCase();
+      if (path === "legal") {
+        window.history.replaceState(null, "", "/#legal");
+        return "legal";
+      }
       const hash = window.location.hash.replace("#", "").trim().toLowerCase();
-      const validPages = ["find", "dashboard", "offer", "trips", "auth"];
+      const validPages = ["find", "dashboard", "offer", "trips", "auth", "legal"];
       if (validPages.includes(hash)) {
         return hash;
       }
@@ -271,6 +277,30 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, [applySession]);
+
+  // Synchronize page on browser back/forward or direct hash/path change
+  useEffect(() => {
+    function handleLocationSync() {
+      const hash = window.location.hash.replace("#", "").trim().toLowerCase();
+      const path = window.location.pathname.replace(/^\//, "").trim().toLowerCase();
+      if (hash) {
+        if (hash === "legal") {
+          setPage("legal");
+        } else if (["find", "dashboard", "offer", "trips", "auth"].includes(hash)) {
+          setPage(hash === "dashboard" ? "find" : hash);
+        }
+      } else if (path === "legal") {
+        window.history.replaceState(null, "", "/#legal");
+        setPage("legal");
+      }
+    }
+    window.addEventListener("hashchange", handleLocationSync);
+    window.addEventListener("popstate", handleLocationSync);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationSync);
+      window.removeEventListener("popstate", handleLocationSync);
+    };
+  }, []);
 
 
 
@@ -2006,7 +2036,11 @@ export default function App() {
     setPage(targetPage);
     try {
       localStorage.setItem("campusride_current_page", targetPage);
-      window.location.hash = targetPage;
+      if (window.location.pathname !== "/" && window.location.pathname !== "") {
+        window.history.pushState(null, "", "/#" + targetPage);
+      } else {
+        window.location.hash = targetPage;
+      }
     } catch {}
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -2148,6 +2182,9 @@ export default function App() {
           />
         )}
 
+        {page === "legal" && (
+          <LegalPage onNavigate={handleNavigate} />
+        )}
 
         </>
         )}
@@ -2173,6 +2210,16 @@ export default function App() {
           <div className="footer-meta">
             <span>Travel responsibly • Wear helmets & seatbelts</span>
             <p>Built exclusively for the SRM University-AP campus community.</p>
+            <a
+              href="#legal"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavigate("legal");
+              }}
+              className="footer-legal-link"
+            >
+              Legal & Policies
+            </a>
           </div>
         </footer>
       </main>
