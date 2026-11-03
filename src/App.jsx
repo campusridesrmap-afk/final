@@ -66,6 +66,11 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(!initialSession);
   const [page, setPage] = useState(() => {
     if (typeof window !== "undefined") {
+      try {
+        if (sessionStorage.getItem("campusride_pending_reg_data")) {
+          return "auth";
+        }
+      } catch {}
       const hash = window.location.hash.replace("#", "").trim().toLowerCase();
       const validPages = ["find", "dashboard", "offer", "trips", "auth"];
       if (validPages.includes(hash)) {
@@ -344,9 +349,10 @@ export default function App() {
     if (user?.id) {
       loadProfile(user.id).then((prof) => {
         if (activeUserIdRef.current === user.id) {
-          // Skip modal if password setup is currently being handled on AuthPage
+          // Skip modal only if password setup is currently being handled on AuthPage
           const isSettingRegPassword = typeof window !== "undefined" &&
-            sessionStorage.getItem("campusride_setting_password") === "true";
+            sessionStorage.getItem("campusride_setting_password") === "true" &&
+            page === "auth";
 
           if (prof?.must_change_password && !isSettingRegPassword) {
             setPasswordSetupMode("first_login");
@@ -2010,7 +2016,8 @@ export default function App() {
     if (!authLoading && user && page === "auth") {
       // Do not redirect if user is in the middle of setting password on AuthPage
       const isSettingRegPassword = typeof window !== "undefined" &&
-        sessionStorage.getItem("campusride_setting_password") === "true";
+        (sessionStorage.getItem("campusride_setting_password") === "true" ||
+         Boolean(sessionStorage.getItem("campusride_pending_reg_data")));
       if (isSettingRegPassword) return;
 
       setPage("find");
