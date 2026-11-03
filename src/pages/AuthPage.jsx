@@ -3,7 +3,8 @@ import {
   Mail,
   Lock,
   ShieldCheck,
-  Sparkles,
+  UserPlus,
+  Users,
   User,
   IdCard,
   CheckCircle2,
@@ -716,7 +717,7 @@ export default function AuthPage({
             <span>Authorized SRM-AP accounts only</span>
           </div>
           <div className="feature-item">
-            <Sparkles size={18} />
+            <Users size={18} />
             <span>Verified student co-riders & zero booking fees</span>
           </div>
         </div>
@@ -749,7 +750,7 @@ export default function AuthPage({
               }
             }}
           >
-            <Sparkles size={14} />
+            {authMode === "set_password" ? <KeyRound size={14} /> : <UserPlus size={14} />}
             <span>{authMode === "set_password" ? "Set Password" : "Register"}</span>
           </button>
         </div>
@@ -1430,7 +1431,7 @@ export default function AuthPage({
                       <div className="reg-otp-card">
                         <div className="reg-otp-header">
                           <span className="reg-otp-header-title">
-                            <Sparkles size={14} style={{ color: "var(--blue, #2563eb)" }} />
+                            <KeyRound size={14} style={{ color: "var(--blue, #2563eb)" }} />
                             Enter 6-Digit OTP Code
                           </span>
                           <span className="reg-otp-header-expiry">
