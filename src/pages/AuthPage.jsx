@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { CAMPUS_RIDE_LOGO } from "../assets/logo";
 import { supabase } from "../lib/supabase";
+import { clearActiveUserSession } from "../lib/profileCache";
 
 export default function AuthPage({
   onLogin,
@@ -27,7 +28,22 @@ export default function AuthPage({
   errorMessage,
   onClearError,
 }) {
-  const [authMode, setAuthMode] = useState("login"); // "login" | "register" | "set_password"
+  const [pendingRegData, setPendingRegData] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("campusride_pending_reg_data");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [authMode, setAuthMode] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("campusride_pending_reg_data");
+      if (saved) return "set_password";
+    } catch {}
+    return "login";
+  }); // "login" | "register" | "set_password"
 
   // Login form state
   const [email, setEmail] = useState("");
@@ -35,7 +51,6 @@ export default function AuthPage({
   const [loginNotice, setLoginNotice] = useState("");
 
   // Set Password form state (after successful registration)
-  const [pendingRegData, setPendingRegData] = useState(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -401,7 +416,6 @@ export default function AuthPage({
         // Check if user has NOT changed their password yet (password is still their SRM registration number)
         let isUnchangedPassword = false;
         try {
-          sessionStorage.setItem("campusride_setting_password", "true");
           const { data: testSignIn, error: testSignInErr } = await supabase.auth.signInWithPassword({
             email: cleanEmail,
             password: cleanReg,
@@ -409,14 +423,27 @@ export default function AuthPage({
 
           if (!testSignInErr && testSignIn?.user) {
             isUnchangedPassword = true;
-            // Password is still the registration number! User just verified OTP, so allow them to set their password now!
-            setPendingRegData({
+
+            // CRITICAL FIX: Immediately sign out the test session!
+            // Never leave an authenticated session in localStorage before the user actually sets their password!
+            try {
+              await supabase.auth.signOut({ scope: "local" });
+              clearActiveUserSession();
+            } catch (_) {}
+
+            const regData = {
               fullName: cleanName || testSignIn.user?.user_metadata?.full_name,
               email: cleanEmail,
               regNumber: cleanReg,
               token: savedToken || null,
               userId: testSignIn.user.id,
-            });
+            };
+
+            setPendingRegData(regData);
+            try {
+              sessionStorage.setItem("campusride_pending_reg_data", JSON.stringify(regData));
+              sessionStorage.setItem("campusride_setting_password", "true");
+            } catch (_) {}
 
             setNewPassword("");
             setConfirmPassword("");
@@ -428,10 +455,12 @@ export default function AuthPage({
             return;
           } else {
             sessionStorage.removeItem("campusride_setting_password");
+            sessionStorage.removeItem("campusride_pending_reg_data");
           }
         } catch (_) {
           try {
             sessionStorage.removeItem("campusride_setting_password");
+            sessionStorage.removeItem("campusride_pending_reg_data");
           } catch (__) {}
         }
 
@@ -468,13 +497,19 @@ export default function AuthPage({
           setSavedToken(token);
         }
 
-        setPendingRegData({
+        const regData = {
           fullName: cleanName,
           email: cleanEmail,
           regNumber: cleanReg,
           token: token,
           userId: data.userId,
-        });
+        };
+
+        setPendingRegData(regData);
+        try {
+          sessionStorage.setItem("campusride_pending_reg_data", JSON.stringify(regData));
+          sessionStorage.setItem("campusride_setting_password", "true");
+        } catch (_) {}
 
         // Clear password setup form state
         setNewPassword("");
@@ -578,6 +613,7 @@ export default function AuthPage({
       // Clear password setting guard now that password is saved
       try {
         sessionStorage.removeItem("campusride_setting_password");
+        sessionStorage.removeItem("campusride_pending_reg_data");
       } catch (_) {}
 
       setSetPasswordSuccess("Password saved successfully! Logging you in...");
@@ -976,7 +1012,9 @@ export default function AuthPage({
                   onClick={async () => {
                     try {
                       sessionStorage.removeItem("campusride_setting_password");
-                      await supabase.auth.signOut();
+                      sessionStorage.removeItem("campusride_pending_reg_data");
+                      await supabase.auth.signOut({ scope: "local" });
+                      clearActiveUserSession();
                     } catch (_) {}
                     setAuthMode("login");
                     setPendingRegData(null);
