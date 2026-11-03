@@ -80,11 +80,21 @@ export default function App() {
       const hash = window.location.hash.replace("#", "").trim().toLowerCase();
       const validPages = ["find", "dashboard", "offer", "trips", "auth", "legal"];
       if (validPages.includes(hash)) {
+        if (initialSession?.user && hash === "auth") {
+          try {
+            window.location.hash = "find";
+            localStorage.setItem("campusride_current_page", "find");
+          } catch {}
+          return "find";
+        }
         return hash;
       }
       try {
         const saved = localStorage.getItem("campusride_current_page");
         if (saved && validPages.includes(saved)) {
+          if (initialSession?.user && saved === "auth") {
+            return "find";
+          }
           return saved;
         }
       } catch {}
@@ -1154,6 +1164,10 @@ export default function App() {
 
       setNotice("Login successful. Welcome to CampusRide SRM-AP!");
       setPage("find");
+      try {
+        localStorage.setItem("campusride_current_page", "find");
+        window.location.hash = "find";
+      } catch {}
 
       // Immediately refresh active rides, expired trips, and user trips with authenticated session
       loadRides();
@@ -1227,6 +1241,10 @@ export default function App() {
 
       setNotice("Account created successfully! Welcome to CampusRide SRM-AP.");
       setPage("find");
+      try {
+        localStorage.setItem("campusride_current_page", "find");
+        window.location.hash = "find";
+      } catch {}
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
