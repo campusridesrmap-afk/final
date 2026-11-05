@@ -36,6 +36,9 @@ export default function OfferRide({
   const [availableSeats, setAvailableSeats] = useState("");
   const [costPerSeat, setCostPerSeat] = useState("");
 
+  const isBookedVehicle =
+    vehicleType === "Booked Auto" || vehicleType === "Booked Cab";
+
   const [routeData, setRouteData] = useState(null);
   const [formError, setFormError] = useState("");
 
@@ -106,7 +109,11 @@ export default function OfferRide({
       // Bike is fixed to 1 seat
     } else {
       if (!availableSeats) {
-        setFormError("Please select number of seats.");
+        setFormError(
+          isBookedVehicle
+            ? "Please select number of seats to share."
+            : "Please select number of seats."
+        );
         return;
       }
     }
@@ -120,25 +127,56 @@ export default function OfferRide({
     }
 
     if (costPerSeat.trim() === "") {
-      setFormError("Please enter the price per seat (enter 0 for a free ride).");
+      setFormError(
+        isBookedVehicle
+          ? "Please enter the total fixed ride fare (enter 0 for free)."
+          : "Please enter the price per seat (enter 0 for a free ride)."
+      );
       return;
     }
 
     const costNum = Number(costPerSeat);
     if (isNaN(costNum) || costNum < 0) {
-      setFormError("Please enter a valid price per seat (0 or greater).");
+      setFormError("Please enter a valid amount (0 or greater).");
       return;
     }
+
+    // Map to DB constraint-safe vehicle type ('Car', 'Bike', 'Auto')
+    const dbVehicleType =
+      vehicleType === "Booked Auto"
+        ? "Auto"
+        : vehicleType === "Booked Cab"
+        ? "Car"
+        : vehicleType;
+
+    // For fixed total ride fare, calculate equal split per seat
+    const perSeatCost = isBookedVehicle
+      ? Math.max(0, Math.round(costNum / (seatsNum + 1)))
+      : costNum;
+
+    // Preserve metadata in stops[0] so frontend can display fixed total fare & pool type
+    const cleanStops = stops.filter((s) => s.name.trim().length > 0);
+    const stopsWithMeta = cleanStops.map((s, idx) => {
+      if (idx === 0) {
+        return {
+          ...s,
+          is_booked_vehicle: isBookedVehicle,
+          booked_type: vehicleType,
+          total_fare: isBookedVehicle ? costNum : null,
+        };
+      }
+      return s;
+    });
 
     // Submit payload
     onSubmitRide({
       from_location: origin.name.trim(),
       to_location: destination.name.trim(),
       departure_at: depDate.toISOString(),
-      vehicle_type: vehicleType,
+      vehicle_type: dbVehicleType,
       available_seats: seatsNum,
-      cost_per_seat: costNum,
-      stops: stops.filter((s) => s.name.trim().length > 0),
+      cost_per_seat: perSeatCost,
+      stops: stopsWithMeta,
       pickup_coords: origin.lat && origin.lng ? { lat: origin.lat, lng: origin.lng } : null,
       destination_coords:
         destination.lat && destination.lng
@@ -235,8 +273,11 @@ export default function OfferRide({
                   setVehicleType(newType);
                   if (newType === "Bike") {
                     setAvailableSeats("1");
+                  } else if (newType === "Booked Auto" || newType === "Auto") {
+                    setAvailableSeats("3");
+                  } else if (newType === "Booked Cab") {
+                    setAvailableSeats("3");
                   } else {
-                    // For Car, Auto, or unselected: clear seats so old selection is never carried over
                     setAvailableSeats("");
                   }
                 }}
@@ -245,12 +286,16 @@ export default function OfferRide({
                 <option value="Car">Car 🚗</option>
                 <option value="Auto">Auto 🛺</option>
                 <option value="Bike">Motorcycle / Scooter 🏍️</option>
+                <option value="Booked Auto">Booked Auto 🛺 (Fixed Fare Pool)</option>
+                <option value="Booked Cab">Booked Cab / Taxi 🚕 (Fixed Fare Pool)</option>
               </select>
             </div>
 
             <div className="field">
               <label className="field-label" htmlFor="available-seats-select">
-                {vehicleType === "Car" || vehicleType === "Auto"
+                {isBookedVehicle
+                  ? "Seats to Share (Excluding You)"
+                  : vehicleType === "Car" || vehicleType === "Auto"
                   ? "Select number of seats"
                   : "Available Seats"}
               </label>
@@ -265,6 +310,15 @@ export default function OfferRide({
                   <option value="">Select vehicle type first</option>
                 ) : vehicleType === "Bike" ? (
                   <option value="1">1 seat</option>
+                ) : isBookedVehicle ? (
+                  <>
+                    <option value="">Select seats to share</option>
+                    {[1, 2, 3, 4, 5, 6].map((seat) => (
+                      <option key={seat} value={seat}>
+                        {seat} {seat === 1 ? "seat" : "seats"} (Total {seat + 1} riders sharing)
+                      </option>
+                    ))}
+                  </>
                 ) : (
                   <>
                     <option value="">Select number of seats</option>
@@ -279,23 +333,52 @@ export default function OfferRide({
             </div>
           </div>
 
-          {/* Cost per seat */}
+          {/* Cost input */}
           <div className="field">
-            <label className="field-label" htmlFor="cost-per-seat-input">Cost Share Per Seat (₹)</label>
+            <label className="field-label" htmlFor="cost-per-seat-input">
+              {isBookedVehicle ? "Total Fixed Ride Fare (₹)" : "Cost Share Per Seat (₹)"}
+            </label>
             <input
               id="cost-per-seat-input"
               type="number"
               min="0"
-              max="5000"
+              max="10000"
               step="5"
               required
               value={costPerSeat}
               onChange={(e) => setCostPerSeat(e.target.value)}
-              placeholder="Enter price per seat"
+              placeholder={
+                vehicleType === "Booked Auto"
+                  ? "e.g. 240 (Total Fixed Auto Fare)"
+                  : vehicleType === "Booked Cab"
+                  ? "e.g. 600 (Total Fixed Cab Fare)"
+                  : "Enter price per seat (0 for free)"
+              }
             />
-            <small className="field-help-text">
-              Fair travel cost contribution per ride seeker. Free rides encourage quick pickups!
-            </small>
+            {isBookedVehicle ? (
+              <>
+                <small className="field-help-text">
+                  Enter the total fixed fare for the entire auto/cab. Cost will be split equally among all riders!
+                </small>
+                {costPerSeat && Number(costPerSeat) > 0 && availableSeats && Number(availableSeats) > 0 && (
+                  <div className="split-calculator-box">
+                    <span>💡</span>
+                    <div>
+                      <strong>Equal Fare Split:</strong> ₹{Number(costPerSeat).toLocaleString("en-IN")} total ÷{" "}
+                      {Number(availableSeats) + 1} riders ({Number(availableSeats)} co-riders + you) ={" "}
+                      <strong style={{ color: "var(--blue)" }}>
+                        ~₹{Math.max(0, Math.round(Number(costPerSeat) / (Number(availableSeats) + 1))).toLocaleString("en-IN")} per seat
+                      </strong>
+                      . Each joining student will contribute this fair amount!
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <small className="field-help-text">
+                Fair travel cost contribution per ride seeker. Free rides encourage quick pickups!
+              </small>
+            )}
           </div>
 
           {/* Submit button */}
