@@ -46,6 +46,19 @@ export default function RideCard({
   const isBike = ride.vehicle_type === "Bike";
   const maxSelectableSeats = isBike ? 1 : Math.max(1, Math.min(seatsAvailable, 7));
 
+  const firstStopMeta = Array.isArray(ride.stops) && ride.stops[0] ? ride.stops[0] : null;
+  const isBookedAuto = firstStopMeta?.booked_type === "Booked Auto";
+  const isBookedCab = firstStopMeta?.booked_type === "Booked Cab";
+  const isBookedRide =
+    isBookedAuto || isBookedCab || Boolean(firstStopMeta?.is_booked_vehicle);
+
+  // Total fare calculation if booked vehicle
+  const totalFare =
+    firstStopMeta?.total_fare ||
+    (isBookedRide && Number(ride.cost_per_seat) > 0
+      ? Math.round(Number(ride.cost_per_seat) * (Number(ride.total_seats || ride.available_seats || 3) + 1))
+      : null);
+
   const departureTimestamp = new Date(ride.departure_at).getTime();
   const isDeparturePassed = !isNaN(departureTimestamp) && departureTimestamp <= Date.now();
   const isExpiredTrip = isExpired || isDeparturePassed || ride.status === "completed" || ride.status === "cancelled";
@@ -75,13 +88,24 @@ export default function RideCard({
     const fromLoc = ride.from_location || "SRM Campus";
     const toLoc = ride.to_location || "Destination";
     const depTimeStr = formatDate(ride.departure_at);
-    const vehicleStr = ride.vehicle_type || "Vehicle";
+    const vehicleStr = isBookedAuto
+      ? "Booked Auto 🛺 (Fixed Fare Pool)"
+      : isBookedCab
+      ? "Booked Cab / Taxi 🚕 (Fixed Fare Pool)"
+      : ride.vehicle_type === "Auto"
+      ? "Auto 🛺"
+      : ride.vehicle_type || "Vehicle";
     const seatsStr = `${seatsAvailable} ${seatsAvailable === 1 ? "seat" : "seats"} left`;
     
     // Resolve price from cost_per_seat or price_per_seat safely
     const rawCost = ride.cost_per_seat != null ? ride.cost_per_seat : ride.price_per_seat;
     const numCost = Number(rawCost);
-    const costStr = isNaN(numCost) || numCost === 0 ? "Free" : `₹${numCost} / seat`;
+    const costStr =
+      isBookedRide && totalFare
+        ? `₹${numCost}/seat (Equal split of ₹${totalFare} total fare)`
+        : isNaN(numCost) || numCost === 0
+        ? "Free"
+        : `₹${numCost} / seat`;
 
     const shareText = `🚗 *CAMPUSRIDE — SRM-AP UPCOMING RIDE*
 
@@ -107,6 +131,14 @@ https://campusridesrmap.vercel.app/`;
           <div className="vehicle-pill">
             {ride.vehicle_type === "Bike" ? (
               <Bike size={14} />
+            ) : isBookedAuto ? (
+              <span style={{ fontSize: "13px", lineHeight: 1 }} role="img" aria-label="Auto">
+                🛺
+              </span>
+            ) : isBookedCab ? (
+              <span style={{ fontSize: "13px", lineHeight: 1 }} role="img" aria-label="Cab">
+                🚕
+              </span>
             ) : ride.vehicle_type === "Auto" ? (
               <span style={{ fontSize: "13px", lineHeight: 1 }} role="img" aria-label="Auto">
                 🛺
@@ -114,7 +146,13 @@ https://campusridesrmap.vercel.app/`;
             ) : (
               <Car size={14} />
             )}
-            <span>{ride.vehicle_type}</span>
+            <span>
+              {isBookedAuto
+                ? "Booked Auto"
+                : isBookedCab
+                ? "Booked Cab"
+                : ride.vehicle_type}
+            </span>
           </div>
 
           <div
@@ -217,6 +255,14 @@ https://campusridesrmap.vercel.app/`;
         </div>
         <div className="meta-cost">
           <strong>{formatCost(ride.cost_per_seat)}</strong>
+          {isBookedRide && totalFare && (
+            <span
+              className="total-split-badge"
+              title="Total fixed ride cost split equally among all riders"
+            >
+              Fixed Total: ₹{totalFare} (Equal split)
+            </span>
+          )}
         </div>
       </div>
 
