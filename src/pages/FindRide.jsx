@@ -409,9 +409,9 @@ export default function FindRide({
                 onChange={(e) => setVehicleFilter(e.target.value)}
               >
                 <option value="All">All vehicles</option>
-                <option value="Car">Cars only</option>
-                <option value="Auto">Autos only</option>
-                <option value="Bike">Bikes only</option>
+                <option value="Car">Cars & Cabs 🚗</option>
+                <option value="Auto">Autos 🛺</option>
+                <option value="Bike">Bikes only 🏍️</option>
               </select>
             </div>
 
