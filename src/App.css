@@ -1340,9 +1340,53 @@ h1, h2, h3, h4 {
   font-weight: 500;
 }
 
+.meta-cost {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .meta-cost strong {
   font-size: 16px;
   font-family: var(--heading);
+  color: var(--ink);
+}
+
+.total-split-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--blue);
+  background: var(--blue-soft);
+  padding: 1px 6px;
+  border-radius: 6px;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+html.dark .total-split-badge {
+  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.2);
+}
+
+.split-calculator-box {
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+html.dark .split-calculator-box {
+  background: rgba(37, 99, 235, 0.15);
+  border-color: rgba(96, 165, 250, 0.25);
   color: var(--ink);
 }
 
